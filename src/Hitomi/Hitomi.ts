@@ -34,12 +34,12 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.1',
+    version: '1.2.2',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
     authorWebsite: 'https://github.com/Phat-Hy',
-    description: 'High performance extension for hitomi.la with TagIndex search and instant multi-section homepage',
+    description: 'High performance extension for hitomi.la with TagIndex search, rich tag browsing, and multi-section homepage',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: HITOMI_DOMAIN,
     sourceTags: [
@@ -344,7 +344,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             })
         }
 
-        // 2. Filter Tag search (when selected from Paperback search filter menu)
+        // 2. Filter Tag search (selected from Paperback search filter menu)
         if (query.includedTags && query.includedTags.length > 0) {
             const tag = query.includedTags[0]
             if (tag && tag.id) {
@@ -354,7 +354,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             }
         }
 
-        // 3. User typed search query (e.g. title, character, series, or artist)
+        // 3. User typed search query (title, character, series, artist, or tag)
         if (title) {
             const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -396,12 +396,21 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             try {
                 let suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
 
-                // If multi-word search didn't yield exact phrase, try significant keyword
+                // For multi-word queries that don't match an entire phrase in TagIndex:
+                // Only fall back to constituent keywords if they match a specific series, character, or artist AND appear in the user query!
+                // NEVER fall back to generic tags (female/male/tag) or unrelated characters when user typed a multi-word title!
                 if (suggestions.length === 0 && clean.includes(' ')) {
                     const words = clean.split(' ').filter(w => w.length > 2 && !['english', 'japanese', 'chinese'].includes(w))
                     for (const word of words) {
-                        suggestions = await this.fetchTagIndexSuggestions(word, 'global')
-                        if (suggestions.length > 0) break
+                        const wordSuggestions = await this.fetchTagIndexSuggestions(word, 'global')
+                        const specific = wordSuggestions.filter(s =>
+                            ['series', 'character', 'artist'].includes(s.namespace) &&
+                            clean.includes(s.name.toLowerCase())
+                        )
+                        if (specific.length > 0) {
+                            suggestions = specific
+                            break
+                        }
                     }
                 }
 
@@ -463,7 +472,9 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             App.createTag({ id: 'type/manga', label: 'Manga' }),
             App.createTag({ id: 'type/artistcg', label: 'Artist CG' }),
             App.createTag({ id: 'type/gamecg', label: 'Game CG' }),
-            App.createTag({ id: 'type/anime', label: 'Anime' })
+            App.createTag({ id: 'type/anime', label: 'Anime' }),
+            App.createTag({ id: 'type/webtoon', label: 'Webtoon' }),
+            App.createTag({ id: 'type/anthology', label: 'Anthology' })
         ]
 
         const languages: Tag[] = [
@@ -471,43 +482,116 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             App.createTag({ id: 'index-japanese', label: 'Japanese' }),
             App.createTag({ id: 'index-chinese', label: 'Chinese' }),
             App.createTag({ id: 'index-korean', label: 'Korean' }),
-            App.createTag({ id: 'index-spanish', label: 'Spanish' })
+            App.createTag({ id: 'index-spanish', label: 'Spanish' }),
+            App.createTag({ id: 'index-french', label: 'French' }),
+            App.createTag({ id: 'index-russian', label: 'Russian' }),
+            App.createTag({ id: 'index-german', label: 'German' }),
+            App.createTag({ id: 'index-portuguese', label: 'Portuguese' }),
+            App.createTag({ id: 'index-italian', label: 'Italian' }),
+            App.createTag({ id: 'index-indonesian', label: 'Indonesian' }),
+            App.createTag({ id: 'index-vietnamese', label: 'Vietnamese' }),
+            App.createTag({ id: 'index-thai', label: 'Thai' })
         ]
 
         const femaleTags: Tag[] = [
-            App.createTag({ id: 'tag/female:schoolgirl%20uniform', label: 'Schoolgirl Uniform ♀' }),
-            App.createTag({ id: 'tag/female:yuri', label: 'Yuri ♀' }),
-            App.createTag({ id: 'tag/female:big%20breasts', label: 'Big Breasts ♀' }),
             App.createTag({ id: 'tag/female:sole%20female', label: 'Sole Female ♀' }),
+            App.createTag({ id: 'tag/female:schoolgirl%20uniform', label: 'Schoolgirl Uniform ♀' }),
+            App.createTag({ id: 'tag/female:big%20breasts', label: 'Big Breasts ♀' }),
             App.createTag({ id: 'tag/female:stockings', label: 'Stockings ♀' }),
             App.createTag({ id: 'tag/female:maid', label: 'Maid ♀' }),
             App.createTag({ id: 'tag/female:swimsuit', label: 'Swimsuit ♀' }),
             App.createTag({ id: 'tag/female:nakadashi', label: 'Nakadashi ♀' }),
             App.createTag({ id: 'tag/female:ahegao', label: 'Ahegao ♀' }),
             App.createTag({ id: 'tag/female:milf', label: 'Milf ♀' }),
-            App.createTag({ id: 'tag/female:gyaru', label: 'Gyaru ♀' })
+            App.createTag({ id: 'tag/female:gyaru', label: 'Gyaru ♀' }),
+            App.createTag({ id: 'tag/female:blowjob', label: 'Blowjob ♀' }),
+            App.createTag({ id: 'tag/female:paizuri', label: 'Paizuri ♀' }),
+            App.createTag({ id: 'tag/female:netorare', label: 'Netorare (NTR) ♀' }),
+            App.createTag({ id: 'tag/female:cheating', label: 'Cheating ♀' }),
+            App.createTag({ id: 'tag/female:yuri', label: 'Yuri ♀' }),
+            App.createTag({ id: 'tag/female:defloration', label: 'Defloration ♀' }),
+            App.createTag({ id: 'tag/female:dark%20skin', label: 'Dark Skin ♀' }),
+            App.createTag({ id: 'tag/female:bunnygirl', label: 'Bunnygirl ♀' }),
+            App.createTag({ id: 'tag/female:monster%20girl', label: 'Monster Girl ♀' }),
+            App.createTag({ id: 'tag/female:femdom', label: 'Femdom ♀' }),
+            App.createTag({ id: 'tag/female:mind%20break', label: 'Mind Break ♀' }),
+            App.createTag({ id: 'tag/female:elf', label: 'Elf ♀' }),
+            App.createTag({ id: 'tag/female:catgirl', label: 'Catgirl ♀' }),
+            App.createTag({ id: 'tag/female:nurse', label: 'Nurse ♀' }),
+            App.createTag({ id: 'tag/female:incest', label: 'Incest ♀' }),
+            App.createTag({ id: 'tag/female:tsundere', label: 'Tsundere ♀' }),
+            App.createTag({ id: 'tag/female:lingerie', label: 'Lingerie ♀' }),
+            App.createTag({ id: 'tag/female:tomboy', label: 'Tomboy ♀' }),
+            App.createTag({ id: 'tag/female:squirting', label: 'Squirting ♀' }),
+            App.createTag({ id: 'tag/female:glasses', label: 'Glasses ♀' }),
+            App.createTag({ id: 'tag/female:bondage', label: 'Bondage ♀' }),
+            App.createTag({ id: 'tag/female:twintails', label: 'Twintails ♀' }),
+            App.createTag({ id: 'tag/female:collar', label: 'Collar ♀' }),
+            App.createTag({ id: 'tag/female:exhibitionism', label: 'Exhibitionism ♀' }),
+            App.createTag({ id: 'tag/female:impregnation', label: 'Impregnation ♀' }),
+            App.createTag({ id: 'tag/female:bitch', label: 'Bitch ♀' }),
+            App.createTag({ id: 'tag/female:tanlines', label: 'Tanlines ♀' }),
+            App.createTag({ id: 'tag/female:prostitution', label: 'Prostitution ♀' }),
+            App.createTag({ id: 'tag/female:miko', label: 'Miko ♀' }),
+            App.createTag({ id: 'tag/female:kunoichi', label: 'Kunoichi ♀' }),
+            App.createTag({ id: 'tag/female:sweating', label: 'Sweating ♀' }),
+            App.createTag({ id: 'tag/female:chikan', label: 'Chikan ♀' }),
+            App.createTag({ id: 'tag/female:masturbation', label: 'Masturbation ♀' }),
+            App.createTag({ id: 'tag/female:x-ray', label: 'X-Ray ♀' }),
+            App.createTag({ id: 'tag/female:cervix%20penetration', label: 'Cervix Penetration ♀' }),
+            App.createTag({ id: 'tag/female:anal', label: 'Anal ♀' }),
+            App.createTag({ id: 'tag/female:small%20breasts', label: 'Small Breasts ♀' }),
+            App.createTag({ id: 'tag/female:huge%20breasts', label: 'Huge Breasts ♀' })
         ]
 
         const maleTags: Tag[] = [
             App.createTag({ id: 'tag/male:sole%20male', label: 'Sole Male ♂' }),
             App.createTag({ id: 'tag/male:shota', label: 'Shota ♂' }),
             App.createTag({ id: 'tag/male:glasses', label: 'Glasses ♂' }),
-            App.createTag({ id: 'tag/male:dilf', label: 'Dilf ♂' })
+            App.createTag({ id: 'tag/male:dilf', label: 'Dilf ♂' }),
+            App.createTag({ id: 'tag/male:crossdressing', label: 'Crossdressing ♂' }),
+            App.createTag({ id: 'tag/male:tomgirl', label: 'Tomgirl ♂' }),
+            App.createTag({ id: 'tag/male:yaoi', label: 'Yaoi ♂' }),
+            App.createTag({ id: 'tag/male:muscle', label: 'Muscle ♂' }),
+            App.createTag({ id: 'tag/male:mind%20break', label: 'Mind Break ♂' }),
+            App.createTag({ id: 'tag/male:bbm', label: 'BBM ♂' }),
+            App.createTag({ id: 'tag/male:cheating', label: 'Cheating ♂' }),
+            App.createTag({ id: 'tag/male:monster', label: 'Monster ♂' }),
+            App.createTag({ id: 'tag/male:tentacles', label: 'Tentacles ♂' }),
+            App.createTag({ id: 'tag/male:dark%20skin', label: 'Dark Skin ♂' }),
+            App.createTag({ id: 'tag/male:teacher', label: 'Teacher ♂' }),
+            App.createTag({ id: 'tag/male:swimsuit', label: 'Swimsuit ♂' }),
+            App.createTag({ id: 'tag/male:blindfold', label: 'Blindfold ♂' }),
+            App.createTag({ id: 'tag/male:schoolboy%20uniform', label: 'Schoolboy Uniform ♂' }),
+            App.createTag({ id: 'tag/male:old%20man', label: 'Old Man ♂' }),
+            App.createTag({ id: 'tag/male:chubby', label: 'Chubby ♂' })
         ]
 
         const generalTags: Tag[] = [
             App.createTag({ id: 'tag/full%20color', label: 'Full Color' }),
             App.createTag({ id: 'tag/group', label: 'Group' }),
             App.createTag({ id: 'tag/vanilla', label: 'Vanilla' }),
-            App.createTag({ id: 'tag/incest', label: 'Incest' })
+            App.createTag({ id: 'tag/incest', label: 'Incest' }),
+            App.createTag({ id: 'tag/harem', label: 'Harem' }),
+            App.createTag({ id: 'tag/cosplay', label: 'Cosplay' }),
+            App.createTag({ id: 'tag/kemonomimi', label: 'Kemonomimi' }),
+            App.createTag({ id: 'tag/supernatural', label: 'Supernatural' }),
+            App.createTag({ id: 'tag/fantasy', label: 'Fantasy' }),
+            App.createTag({ id: 'tag/sci-fi', label: 'Sci-Fi' }),
+            App.createTag({ id: 'tag/horror', label: 'Horror' }),
+            App.createTag({ id: 'tag/romance', label: 'Romance' }),
+            App.createTag({ id: 'tag/comedy', label: 'Comedy' }),
+            App.createTag({ id: 'tag/gender%20bender', label: 'Gender Bender' }),
+            App.createTag({ id: 'tag/slice%20of%20life', label: 'Slice of Life' }),
+            App.createTag({ id: 'tag/uncensored', label: 'Uncensored' })
         ]
 
         return [
             App.createTagSection({ id: 'categories', label: 'Categories', tags: categories }),
             App.createTagSection({ id: 'languages', label: 'Languages', tags: languages }),
-            App.createTagSection({ id: 'female', label: 'Female Tags', tags: femaleTags }),
+            App.createTagSection({ id: 'female', label: 'Female Tags (50+)', tags: femaleTags }),
             App.createTagSection({ id: 'male', label: 'Male Tags', tags: maleTags }),
-            App.createTagSection({ id: 'general', label: 'General Tags', tags: generalTags })
+            App.createTagSection({ id: 'general', label: 'Themes & Genres', tags: generalTags })
         ]
     }
 }
