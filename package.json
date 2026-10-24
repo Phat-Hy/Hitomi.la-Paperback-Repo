@@ -3,6 +3,7 @@
   "version": "0.8.0",
   "repositoryName": "Hitomi.la Paperback Repository (0.8)",
   "description": "Hitomi.la extension repository for Paperback v0.8",
+  "baseURL": "https://phat-hy.github.io/Hitomi.la-Paperback-Repo",
   "scripts": {
     "bundle": "npx paperback bundle",
     "serve": "npx paperback serve",
