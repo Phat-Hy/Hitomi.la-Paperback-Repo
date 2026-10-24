@@ -29,17 +29,18 @@ import {
     parseGalleryToChapterDetails,
     parseGalleryToSourceManga
 } from './HitomiParser'
+import { searchGalleryTitlesHitomi } from './HitomiTitleSearch'
 
 const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.2',
+    version: '1.2.3',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
     authorWebsite: 'https://github.com/Phat-Hy',
-    description: 'High performance extension for hitomi.la with TagIndex search, rich tag browsing, and multi-section homepage',
+    description: 'High performance extension for hitomi.la with B-Tree title search, TagIndex suggestions, and multi-section homepage',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: HITOMI_DOMAIN,
     sourceTags: [
@@ -392,7 +393,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 }
             }
 
-            // 3b. Hitomi Official TagIndex Suggestion Search
+            // 3b. Hitomi Official TagIndex Suggestion Search (Fastest for series, tags, characters, and artists)
             try {
                 let suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
 
@@ -427,10 +428,27 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                     }
                 }
             } catch {
-                // If TagIndex request fails, continue to candidate fallback probe
+                // If TagIndex request fails, continue to B-Tree title search
             }
 
-            // 3c. Direct candidate probe across common Hitomi feeds
+            // 3c. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
+            try {
+                const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
+                if (titleIds.length > 0) {
+                    const topIds = titleIds.slice(0, 25)
+                    const items = await Promise.all(
+                        topIds.map(id => this.buildPartialSourceManga(id))
+                    )
+                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
+                    if (valid.length > 0) {
+                        return App.createPagedResults({ results: valid })
+                    }
+                }
+            } catch {
+                // Continue to candidate fallback probe
+            }
+
+            // 3d. Direct candidate probe across common Hitomi feeds
             const enc = encodeURIComponent(clean)
             const candidates = [
                 `series/${enc}-all.atom`,
