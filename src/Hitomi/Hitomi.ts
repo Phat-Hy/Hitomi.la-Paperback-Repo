@@ -22,22 +22,19 @@ import {
     Tag,
     TagSection
 } from '@paperback/types'
-import { searchGalleryIdsByTerm } from './HitomiBTree'
 import { HitomiGallery } from './HitomiModels'
 import {
     ImageUriResolver,
     parseGalleryJson,
     parseGalleryToChapterDetails,
-    parseGalleryToSourceManga,
-    parseNozomiBuffer,
-    responseToArrayBuffer
+    parseGalleryToSourceManga
 } from './HitomiParser'
 
 const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -78,24 +75,18 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
     private async ensureGG(): Promise<void> {
         if (!ImageUriResolver.needsSync()) return
 
-        const request = App.createRequest({
-            url: `${LTN_DOMAIN}/gg.js`,
-            method: 'GET'
-        })
-        const response = await this.requestManager.schedule(request, 1)
-        if (response.data && typeof response.data === 'string') {
-            ImageUriResolver.parseGG(response.data)
+        try {
+            const request = App.createRequest({
+                url: `${LTN_DOMAIN}/gg.js`,
+                method: 'GET'
+            })
+            const response = await this.requestManager.schedule(request, 1)
+            if (response.data && typeof response.data === 'string') {
+                ImageUriResolver.parseGG(response.data)
+            }
+        } catch {
+            // fallback defaults in ImageUriResolver will be used
         }
-    }
-
-    private fetchBinary = async (url: string, headers?: Record<string, string>): Promise<ArrayBuffer> => {
-        const request = App.createRequest({
-            url,
-            method: 'GET',
-            headers: headers || {}
-        })
-        const response = await this.requestManager.schedule(request, 1)
-        return responseToArrayBuffer(response)
     }
 
     private async fetchGallery(id: string): Promise<HitomiGallery> {
@@ -138,6 +129,32 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         }
     }
 
+    private async fetchAtomSection(path: string, limit: number): Promise<PartialSourceManga[]> {
+        const request = App.createRequest({
+            url: `${HITOMI_DOMAIN}/${path}`,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        this.checkCloudflareError(response.status)
+
+        const xml = response.data || ''
+        const regex = /<entry>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<id>[\s\S]*?-(\d+)\.html<\/id>[\s\S]*?<\/entry>/g
+        const entries: { title: string; id: string }[] = []
+        let match: RegExpExecArray | null
+
+        while ((match = regex.exec(xml)) !== null && entries.length < limit) {
+            if (match[1] && match[2]) {
+                entries.push({ title: match[1].trim(), id: match[2].trim() })
+            }
+        }
+
+        const items = await Promise.all(
+            entries.map(e => this.buildPartialSourceManga(Number(e.id)))
+        )
+
+        return items.filter((item): item is PartialSourceManga => item !== null)
+    }
+
     getMangaShareUrl(mangaId: string): string {
         return `${HITOMI_DOMAIN}/galleries/${mangaId}.html`
     }
@@ -172,171 +189,169 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
 
         const sections = [
             App.createHomeSection({
-                id: 'popular_today',
-                title: 'Popular Today',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'popular_week',
-                title: 'Popular This Week',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
                 id: 'recently_added',
                 title: 'Recently Added',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'japanese',
+                title: 'Japanese',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'english',
+                title: 'English',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'manga',
+                title: 'Manga',
                 type: HomeSectionType.singleRowNormal,
                 containsMoreItems: true
             })
         ]
 
-        // Populate popular today
-        sectionCallback(sections[0]!)
-        this.fetchNozomiSection('popular/today-all.nozomi', 0, 16)
-            .then(items => {
-                sections[0]!.items = items
-                sectionCallback(sections[0]!)
-            })
-            .catch(() => undefined)
-
-        // Populate popular this week
-        sectionCallback(sections[1]!)
-        this.fetchNozomiSection('popular/week-all.nozomi', 0, 16)
-            .then(items => {
-                sections[1]!.items = items
-                sectionCallback(sections[1]!)
-            })
-            .catch(() => undefined)
-
-        // Populate recently added
-        sectionCallback(sections[2]!)
-        this.fetchNozomiSection('n/index-all.nozomi', 0, 16)
-            .then(items => {
-                sections[2]!.items = items
-                sectionCallback(sections[2]!)
-            })
-            .catch(() => undefined)
-    }
-
-    private async fetchNozomiSection(path: string, offsetIndex: number, limit: number): Promise<PartialSourceManga[]> {
-        const byteStart = offsetIndex * 4
-        const byteEnd = (offsetIndex + limit) * 4 - 1
-        const buffer = await this.fetchBinary(`${LTN_DOMAIN}/${path}`, {
-            Range: `bytes=${byteStart}-${byteEnd}`
-        })
-        const ids = parseNozomiBuffer(buffer)
-        const mangas: PartialSourceManga[] = []
-        for (const id of ids) {
-            const item = await this.buildPartialSourceManga(id)
-            if (item) mangas.push(item)
+        // Load and emit Recently Added
+        try {
+            sections[0]!.items = await this.fetchAtomSection('index-all.atom', 16)
+            sectionCallback(sections[0]!)
+        } catch {
+            sectionCallback(sections[0]!)
         }
-        return mangas
+
+        // Load and emit Japanese
+        try {
+            sections[1]!.items = await this.fetchAtomSection('index-japanese.atom', 16)
+            sectionCallback(sections[1]!)
+        } catch {
+            sectionCallback(sections[1]!)
+        }
+
+        // Load and emit English
+        try {
+            sections[2]!.items = await this.fetchAtomSection('index-english.atom', 16)
+            sectionCallback(sections[2]!)
+        } catch {
+            sectionCallback(sections[2]!)
+        }
+
+        // Load and emit Manga
+        try {
+            sections[3]!.items = await this.fetchAtomSection('type/manga-all.atom', 16)
+            sectionCallback(sections[3]!)
+        } catch {
+            sectionCallback(sections[3]!)
+        }
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
         await this.ensureGG()
-        const page: number = metadata?.page ?? 0
-        const pageSize = 24
-        let path = 'n/index-all.nozomi'
+        let path = 'index-all.atom'
 
         switch (homepageSectionId) {
-            case 'popular_today':
-                path = 'popular/today-all.nozomi'
-                break
-            case 'popular_week':
-                path = 'popular/week-all.nozomi'
-                break
             case 'recently_added':
-                path = 'n/index-all.nozomi'
+                path = 'index-all.atom'
+                break
+            case 'japanese':
+                path = 'index-japanese.atom'
+                break
+            case 'english':
+                path = 'index-english.atom'
+                break
+            case 'manga':
+                path = 'type/manga-all.atom'
                 break
             default:
-                throw new Error(`Invalid section ID: ${homepageSectionId}`)
+                path = 'index-all.atom'
+                break
         }
 
-        const mangas = await this.fetchNozomiSection(path, page * pageSize, pageSize)
-        const nextMetadata = mangas.length >= pageSize ? { page: page + 1 } : undefined
-
+        const items = await this.fetchAtomSection(path, 25)
         return App.createPagedResults({
-            results: mangas,
-            metadata: nextMetadata
+            results: items
         })
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         await this.ensureGG()
-        const page: number = metadata?.page ?? 0
-        const pageSize = 24
+        const title = query.title?.trim()
 
-        let allIds: number[] = metadata?.allIds ?? []
+        if (title && /^\d+$/.test(title)) {
+            // Direct gallery ID lookup
+            const item = await this.buildPartialSourceManga(parseInt(title, 10))
+            return App.createPagedResults({
+                results: item ? [item] : []
+            })
+        }
 
-        if (!metadata?.allIds) {
-            const title = query.title?.trim()
-            if (title && /^\d+$/.test(title)) {
-                // Direct ID search
-                const id = parseInt(title, 10)
-                const item = await this.buildPartialSourceManga(id)
-                return App.createPagedResults({
-                    results: item ? [item] : []
-                })
+        let path = 'index-all.atom'
+
+        if (title) {
+            // Tag, artist, or series search
+            const cleanTitle = encodeURIComponent(title.toLowerCase().replace(/\s+/g, ' '))
+            path = `tag/female:${cleanTitle}-all.atom`
+        } else if (query.includedTags && query.includedTags.length > 0) {
+            const tag = query.includedTags[0]
+            if (tag && tag.id) {
+                path = `${tag.id}-all.atom`
             }
+        }
 
+        try {
+            const items = await this.fetchAtomSection(path, 25)
+            if (items.length > 0) {
+                return App.createPagedResults({ results: items })
+            }
+        } catch {
+            // If specific tag feed fails, fallback to general tag search
             if (title) {
-                // B-Tree search by term
-                allIds = await searchGalleryIdsByTerm(title, this.fetchBinary)
-            } else if (query.includedTags && query.includedTags.length > 0) {
-                // Search by tag
-                const tagId = query.includedTags[0]?.id
-                if (tagId) {
-                    allIds = await searchGalleryIdsByTerm(tagId, this.fetchBinary)
+                try {
+                    const cleanTitle = encodeURIComponent(title.toLowerCase().replace(/\s+/g, ' '))
+                    const fallbackItems = await this.fetchAtomSection(`tag/${cleanTitle}-all.atom`, 25)
+                    return App.createPagedResults({ results: fallbackItems })
+                } catch {
+                    // Empty if not found
                 }
-            } else {
-                // Default search: latest galleries
-                const buffer = await this.fetchBinary(`${LTN_DOMAIN}/n/index-all.nozomi`, {
-                    Range: `bytes=0-399`
-                })
-                allIds = parseNozomiBuffer(buffer)
             }
         }
-
-        const start = page * pageSize
-        const end = start + pageSize
-        const sliceIds = allIds.slice(start, end)
-
-        const mangas: PartialSourceManga[] = []
-        for (const id of sliceIds) {
-            const item = await this.buildPartialSourceManga(id)
-            if (item) mangas.push(item)
-        }
-
-        const nextMetadata = end < allIds.length ? { page: page + 1, allIds } : undefined
 
         return App.createPagedResults({
-            results: mangas,
-            metadata: nextMetadata
+            results: []
         })
     }
 
     async getSearchTags(): Promise<TagSection[]> {
         const categories: Tag[] = [
-            App.createTag({ id: 'type:doujinshi', label: 'Doujinshi' }),
-            App.createTag({ id: 'type:manga', label: 'Manga' }),
-            App.createTag({ id: 'type:artistcg', label: 'Artist CG' }),
-            App.createTag({ id: 'type:gamecg', label: 'Game CG' }),
-            App.createTag({ id: 'type:anime', label: 'Anime' })
+            App.createTag({ id: 'type/doujinshi', label: 'Doujinshi' }),
+            App.createTag({ id: 'type/manga', label: 'Manga' }),
+            App.createTag({ id: 'type/artistcg', label: 'Artist CG' }),
+            App.createTag({ id: 'type/gamecg', label: 'Game CG' }),
+            App.createTag({ id: 'type/anime', label: 'Anime' })
         ]
 
         const languages: Tag[] = [
-            App.createTag({ id: 'language:english', label: 'English' }),
-            App.createTag({ id: 'language:japanese', label: 'Japanese' }),
-            App.createTag({ id: 'language:chinese', label: 'Chinese' }),
-            App.createTag({ id: 'language:korean', label: 'Korean' }),
-            App.createTag({ id: 'language:spanish', label: 'Spanish' })
+            App.createTag({ id: 'index-english', label: 'English' }),
+            App.createTag({ id: 'index-japanese', label: 'Japanese' }),
+            App.createTag({ id: 'index-chinese', label: 'Chinese' }),
+            App.createTag({ id: 'index-korean', label: 'Korean' }),
+            App.createTag({ id: 'index-spanish', label: 'Spanish' })
+        ]
+
+        const popularTags: Tag[] = [
+            App.createTag({ id: 'tag/female:yuri', label: 'Yuri ♀' }),
+            App.createTag({ id: 'tag/female:schoolgirl_uniform', label: 'Schoolgirl Uniform ♀' }),
+            App.createTag({ id: 'tag/female:big_breasts', label: 'Big Breasts ♀' }),
+            App.createTag({ id: 'tag/female:sole_female', label: 'Sole Female ♀' }),
+            App.createTag({ id: 'tag/male:sole_male', label: 'Sole Male ♂' })
         ]
 
         return [
             App.createTagSection({ id: 'categories', label: 'Categories', tags: categories }),
-            App.createTagSection({ id: 'languages', label: 'Languages', tags: languages })
+            App.createTagSection({ id: 'languages', label: 'Languages', tags: languages }),
+            App.createTagSection({ id: 'tags', label: 'Popular Tags', tags: popularTags })
         ]
     }
 
