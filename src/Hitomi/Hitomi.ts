@@ -29,13 +29,13 @@ import {
     parseGalleryToChapterDetails,
     parseGalleryToSourceManga
 } from './HitomiParser'
-import { searchGalleryTitlesHitomi } from './HitomiTitleSearch'
+import { searchGalleryTitlesHitomi, responseToUint8Array } from './HitomiTitleSearch'
 
 const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.6',
+    version: '1.2.7',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -170,6 +170,39 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         return items.filter((item): item is PartialSourceManga => item !== null)
     }
 
+    private async fetchNozomiSection(nozomiPath: string, page: number, limit = 25): Promise<PartialSourceManga[]> {
+        const start = (page - 1) * limit * 4
+        const end = page * limit * 4 - 1
+        const cleanPath = nozomiPath.replace(/^\/+/, '')
+
+        try {
+            const req = App.createRequest({
+                url: `${LTN_DOMAIN}/${cleanPath}?r=${start}-${end}`,
+                method: 'GET',
+                headers: {
+                    Range: `bytes=${start}-${end}`,
+                    Referer: `${HITOMI_DOMAIN}/`
+                }
+            })
+            const res = await this.requestManager.schedule(req, 1)
+            const bytes = responseToUint8Array(res)
+            if (!bytes || bytes.length < 4) return []
+
+            const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+            const ids: number[] = []
+            for (let i = 0; i + 4 <= dv.byteLength; i += 4) {
+                ids.push(dv.getInt32(i, false))
+            }
+
+            const items = await Promise.all(
+                ids.map(id => this.buildPartialSourceManga(id))
+            )
+            return items.filter((item): item is PartialSourceManga => item !== null)
+        } catch {
+            return []
+        }
+    }
+
     private async fetchTagIndexSuggestions(term: string, field = 'global'): Promise<TagIndexSuggestion[]> {
         const clean = term.toLowerCase().trim()
         if (!clean) return []
@@ -298,43 +331,83 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
 
     async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
         await this.ensureGG()
-        let path = 'index-all.atom'
+        let nozomiPath = 'index-all.nozomi'
 
         switch (homepageSectionId) {
             case 'recently_added':
-                path = 'index-all.atom'
+                nozomiPath = 'index-all.nozomi'
                 break
             case 'english':
-                path = 'index-english.atom'
+                nozomiPath = 'index-english.nozomi'
                 break
             case 'japanese':
-                path = 'index-japanese.atom'
+                nozomiPath = 'index-japanese.nozomi'
                 break
             case 'doujinshi':
-                path = 'type/doujinshi-all.atom'
+                nozomiPath = 'type/doujinshi-all.nozomi'
                 break
             case 'manga':
-                path = 'type/manga-all.atom'
+                nozomiPath = 'type/manga-all.nozomi'
                 break
             case 'artistcg':
-                path = 'type/artistcg-all.atom'
+                nozomiPath = 'type/artistcg-all.nozomi'
                 break
             case 'gamecg':
-                path = 'type/gamecg-all.atom'
+                nozomiPath = 'type/gamecg-all.nozomi'
                 break
             default:
-                path = 'index-all.atom'
+                nozomiPath = 'index-all.nozomi'
                 break
         }
 
-        const items = await this.fetchAtomSection(path, 25)
+        const page = typeof metadata?.page === 'number' ? metadata.page : 1
+        const items = await this.fetchNozomiSection(nozomiPath, page, 25)
+        const nextMetadata = items.length >= 25 ? { page: page + 1 } : undefined
+
         return App.createPagedResults({
-            results: items
+            results: items,
+            metadata: nextMetadata
         })
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         await this.ensureGG()
+
+        // 0a. Paginated continuation of Nozomi results (feeds, tags, categories)
+        if (metadata?.nozomiPath && typeof metadata.nozomiPath === 'string') {
+            const page: number = typeof metadata.page === 'number' ? metadata.page : 2
+            const items = await this.fetchNozomiSection(metadata.nozomiPath, page, 25)
+            const nextMetadata = items.length >= 25 ? { nozomiPath: metadata.nozomiPath, page: page + 1 } : undefined
+            return App.createPagedResults({
+                results: items,
+                metadata: nextMetadata
+            })
+        }
+
+        // 0b. Paginated continuation of Title Search (allIds)
+        if (metadata?.allIds && Array.isArray(metadata.allIds)) {
+            const allIds: number[] = metadata.allIds
+            const offset: number = typeof metadata.offset === 'number' ? metadata.offset : 0
+            const batchSize = 25
+            const batchIds = allIds.slice(offset, offset + batchSize)
+
+            if (batchIds.length > 0) {
+                const items = await Promise.all(
+                    batchIds.map(id => this.buildPartialSourceManga(id))
+                )
+                const valid = items.filter((item): item is PartialSourceManga => item !== null)
+                const nextOffset = offset + batchSize
+                const nextMetadata = nextOffset < allIds.length ? { allIds, offset: nextOffset } : undefined
+
+                return App.createPagedResults({
+                    results: valid,
+                    metadata: nextMetadata
+                })
+            }
+
+            return App.createPagedResults({ results: [] })
+        }
+
         const title = query.title?.trim()
 
         // 1. Direct gallery ID lookup
@@ -346,7 +419,6 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         }
 
         // 2. User typed search query (title, character, series, artist, or tag)
-        // Must take precedence over includedTags so user searches are never hijacked by active filters
         if (title) {
             const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -378,7 +450,11 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                     if (directPath) {
                         try {
                             const items = await this.fetchAtomSection(directPath, 25)
-                            if (items.length > 0) return App.createPagedResults({ results: items })
+                            if (items.length > 0) {
+                                const nozomiPath = directPath.replace(/\.atom$/, '.nozomi')
+                                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
+                                return App.createPagedResults({ results: items, metadata: nextMetadata })
+                            }
                         } catch {}
                     }
                 }
@@ -388,9 +464,11 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             try {
                 const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
                 if (titleIds.length > 0) {
-                    const topIds = titleIds.slice(0, 30)
+                    const batchSize = 25
+                    const totalPool = titleIds.slice(0, 1000)
+                    const batchIds = totalPool.slice(0, batchSize)
                     const items = await Promise.all(
-                        topIds.map(id => this.buildPartialSourceManga(id))
+                        batchIds.map(id => this.buildPartialSourceManga(id))
                     )
                     const valid = items.filter((item): item is PartialSourceManga => item !== null)
                     if (valid.length > 0) {
@@ -405,7 +483,13 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                             const bMatches = bExact + queryWords.filter(w => bTitle.includes(w)).length
                             return bMatches - aMatches
                         })
-                        return App.createPagedResults({ results: valid })
+
+                        const nextMetadata = totalPool.length > batchSize ? { allIds: totalPool, offset: batchSize } : undefined
+
+                        return App.createPagedResults({
+                            results: valid,
+                            metadata: nextMetadata
+                        })
                     }
                 }
             } catch {
@@ -423,7 +507,9 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                         try {
                             const items = await this.fetchAtomSection(path, 25)
                             if (items.length > 0) {
-                                return App.createPagedResults({ results: items })
+                                const nozomiPath = path.replace(/\.atom$/, '.nozomi')
+                                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
+                                return App.createPagedResults({ results: items, metadata: nextMetadata })
                             }
                         } catch {}
                     }
@@ -431,6 +517,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             } catch {
                 // Continue to candidate fallback probe
             }
+
             // 2d. Direct candidate probe across common Hitomi feeds
             const enc = encodeURIComponent(clean)
             const candidates = [
@@ -447,7 +534,9 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 try {
                     const items = await this.fetchAtomSection(cand, 25)
                     if (items.length > 0) {
-                        return App.createPagedResults({ results: items })
+                        const nozomiPath = cand.replace(/\.atom$/, '.nozomi')
+                        const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
+                        return App.createPagedResults({ results: items, metadata: nextMetadata })
                     }
                 } catch {
                     // Try next candidate
@@ -466,14 +555,18 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             if (tag && tag.id) {
                 const path = `${tag.id}-all.atom`
                 const items = await this.fetchAtomSection(path, 25)
-                return App.createPagedResults({ results: items })
+                const nozomiPath = `${tag.id}-all.nozomi`
+                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
+                return App.createPagedResults({ results: items, metadata: nextMetadata })
             }
         }
 
         // 4. Empty search query (user pressed enter with no text): show recent
         const recent = await this.fetchAtomSection('index-all.atom', 25)
+        const nextMetadata = recent.length >= 25 ? { nozomiPath: 'index-all.nozomi', page: 2 } : undefined
         return App.createPagedResults({
-            results: recent
+            results: recent,
+            metadata: nextMetadata
         })
     }
 

@@ -237,7 +237,7 @@ function tryExtractBytes(input: any): Uint8Array | null {
     return null
 }
 
-function responseToUint8Array(response: Response): Uint8Array {
+export function responseToUint8Array(response: Response): Uint8Array {
     if (response.rawData) {
         const fromRaw = tryExtractBytes(response.rawData)
         if (fromRaw && fromRaw.length > 0) return fromRaw

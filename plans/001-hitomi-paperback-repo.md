@@ -35,3 +35,6 @@ Build a fully functional extension repository for the **Hitomi.la** source targe
   3. Added title punctuation awareness: detects other!! when user searches Mother and No Other or Mother and No Other!!, and detects mother, for Mother, It Has to Be You.
   4. Moved B-Tree title search to run before TagIndex autocomplete suggestions, preventing tag suggestions from hijacking title queries.
   5. Added title relevance sorting with exact phrase bonus (+100) so chapters of the searched title appear first in results.
+- **v1.2.7 (Pagination & Infinite Scroll)**:
+  1. Title Search Pagination: Implemented PagedResults metadata passing with allIds pool (up to 1,000 matches). Page 1 serves the first 25 ranked results; scrolling down in Paperback automatically requests subsequent batches (25-50, 50-75, etc.) without re-querying the B-Tree index.
+  2. Nozomi Feed Pagination: Added fetchNozomiSection with 100-byte Range requests for seamless infinite scrolling on View More (Recently Added, English, Manga, Doujinshi, etc.) and tag/namespace browse pages.
