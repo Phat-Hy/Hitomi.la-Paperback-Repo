@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.9',
+    version: '1.2.10',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -167,7 +167,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 request.headers = {
                     ...(request.headers ?? {}),
                     referer: `${HITOMI_DOMAIN}/`,
-                    'user-agent': await this.requestManager.getDefaultUserAgent()
+                    Referer: `${HITOMI_DOMAIN}/`
                 }
                 return request
             },

@@ -12,7 +12,7 @@ import { HitomiFile, HitomiGallery, HitomiTag } from './HitomiModels'
 const IMAGE_DOMAIN = 'gold-usergeneratedcontent.net'
 
 export class ImageUriResolver {
-    private static b = '1792857602/'
+    private static b = '1792872002/'
     private static o = 0
     private static cases = new Set<number>()
     private static lastSyncedAt = 0
@@ -67,14 +67,14 @@ export class ImageUriResolver {
 
         if (!options.isThumbnail) {
             // Full page image
-            const m = isMatch ? 1 : 0
+            const m = isMatch ? 0 : 1
             const prefix = resolvedExtension === 'avif' ? 'a' : 'w'
             const subdomain = `${prefix}${1 + m}`
             const path = `${ImageUriResolver.b}${imageHashCode}/${image.hash}`
             return `https://${subdomain}.${IMAGE_DOMAIN}/${path}.${resolvedExtension}`
         } else {
             // Thumbnail
-            const m = isMatch ? 1 : 0
+            const m = isMatch ? 0 : 1
             const prefix = String.fromCharCode(97 + m) + 'tn' // atn or btn
             const thumbType = options.isSmall ? 'smalltn' : 'bigtn'
             const path = `${resolvedExtension}${thumbType}/${image.hash.slice(-1)}/${image.hash.slice(-3, -1)}/${image.hash}`
