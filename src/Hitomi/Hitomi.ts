@@ -34,12 +34,12 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.1.0',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
     authorWebsite: 'https://github.com/Phat-Hy',
-    description: 'Extension that pulls manga and doujinshi from hitomi.la',
+    description: 'Full-featured extension for hitomi.la with smart search and multi-section homepage',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: HITOMI_DOMAIN,
     sourceTags: [
@@ -85,7 +85,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 ImageUriResolver.parseGG(response.data)
             }
         } catch {
-            // fallback defaults in ImageUriResolver will be used
+            // ImageUriResolver has resilient internal fallback mappings
         }
     }
 
@@ -195,14 +195,20 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 containsMoreItems: true
             }),
             App.createHomeSection({
-                id: 'japanese',
-                title: 'Japanese',
+                id: 'english',
+                title: 'English Releases',
                 type: HomeSectionType.singleRowNormal,
                 containsMoreItems: true
             }),
             App.createHomeSection({
-                id: 'english',
-                title: 'English',
+                id: 'japanese',
+                title: 'Japanese Releases',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'doujinshi',
+                title: 'Doujinshi',
                 type: HomeSectionType.singleRowNormal,
                 containsMoreItems: true
             }),
@@ -211,39 +217,41 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 title: 'Manga',
                 type: HomeSectionType.singleRowNormal,
                 containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'artistcg',
+                title: 'Artist CG',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
+            }),
+            App.createHomeSection({
+                id: 'gamecg',
+                title: 'Game CG',
+                type: HomeSectionType.singleRowNormal,
+                containsMoreItems: true
             })
         ]
 
-        // Load and emit Recently Added
-        try {
-            sections[0]!.items = await this.fetchAtomSection('index-all.atom', 16)
-            sectionCallback(sections[0]!)
-        } catch {
-            sectionCallback(sections[0]!)
-        }
+        const feedMap: [number, string][] = [
+            [0, 'index-all.atom'],
+            [1, 'index-english.atom'],
+            [2, 'index-japanese.atom'],
+            [3, 'type/doujinshi-all.atom'],
+            [4, 'type/manga-all.atom'],
+            [5, 'type/artistcg-all.atom'],
+            [6, 'type/gamecg-all.atom']
+        ]
 
-        // Load and emit Japanese
-        try {
-            sections[1]!.items = await this.fetchAtomSection('index-japanese.atom', 16)
-            sectionCallback(sections[1]!)
-        } catch {
-            sectionCallback(sections[1]!)
-        }
-
-        // Load and emit English
-        try {
-            sections[2]!.items = await this.fetchAtomSection('index-english.atom', 16)
-            sectionCallback(sections[2]!)
-        } catch {
-            sectionCallback(sections[2]!)
-        }
-
-        // Load and emit Manga
-        try {
-            sections[3]!.items = await this.fetchAtomSection('type/manga-all.atom', 16)
-            sectionCallback(sections[3]!)
-        } catch {
-            sectionCallback(sections[3]!)
+        for (const [idx, path] of feedMap) {
+            try {
+                const items = await this.fetchAtomSection(path, 16)
+                if (items.length > 0) {
+                    sections[idx]!.items = items
+                    sectionCallback(sections[idx]!)
+                }
+            } catch {
+                // Continue emitting available sections
+            }
         }
     }
 
@@ -255,14 +263,23 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             case 'recently_added':
                 path = 'index-all.atom'
                 break
-            case 'japanese':
-                path = 'index-japanese.atom'
-                break
             case 'english':
                 path = 'index-english.atom'
                 break
+            case 'japanese':
+                path = 'index-japanese.atom'
+                break
+            case 'doujinshi':
+                path = 'type/doujinshi-all.atom'
+                break
             case 'manga':
                 path = 'type/manga-all.atom'
+                break
+            case 'artistcg':
+                path = 'type/artistcg-all.atom'
+                break
+            case 'gamecg':
+                path = 'type/gamecg-all.atom'
                 break
             default:
                 path = 'index-all.atom'
@@ -279,47 +296,89 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         await this.ensureGG()
         const title = query.title?.trim()
 
+        // 1. Direct gallery ID lookup
         if (title && /^\d+$/.test(title)) {
-            // Direct gallery ID lookup
             const item = await this.buildPartialSourceManga(parseInt(title, 10))
             return App.createPagedResults({
                 results: item ? [item] : []
             })
         }
 
-        let path = 'index-all.atom'
-
-        if (title) {
-            // Tag, artist, or series search
-            const cleanTitle = encodeURIComponent(title.toLowerCase().replace(/\s+/g, ' '))
-            path = `tag/female:${cleanTitle}-all.atom`
-        } else if (query.includedTags && query.includedTags.length > 0) {
+        // 2. Filter Tag search (when selected from Paperback search filter menu)
+        if (query.includedTags && query.includedTags.length > 0) {
             const tag = query.includedTags[0]
             if (tag && tag.id) {
-                path = `${tag.id}-all.atom`
+                const path = `${tag.id}-all.atom`
+                const items = await this.fetchAtomSection(path, 25)
+                return App.createPagedResults({ results: items })
             }
         }
 
-        try {
-            const items = await this.fetchAtomSection(path, 25)
-            if (items.length > 0) {
-                return App.createPagedResults({ results: items })
+        // 3. User typed search query
+        if (title) {
+            const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+
+            // 3a. Explicit namespace prefix: artist:xxx, female:xxx, series:xxx, etc.
+            if (clean.includes(':')) {
+                const [prefix, val] = clean.split(':').map(s => s.trim())
+                if (val) {
+                    const enc = encodeURIComponent(val)
+                    let directPath = ''
+                    if (prefix === 'female' || prefix === 'male') {
+                        directPath = `tag/${prefix}:${enc}-all.atom`
+                    } else if (prefix === 'tag') {
+                        directPath = `tag/${enc}-all.atom`
+                    } else if (prefix === 'artist') {
+                        directPath = `artist/${enc}-all.atom`
+                    } else if (prefix === 'character') {
+                        directPath = `character/${enc}-all.atom`
+                    } else if (prefix === 'series' || prefix === 'parody') {
+                        directPath = `series/${enc}-all.atom`
+                    } else if (prefix === 'group') {
+                        directPath = `group/${enc}-all.atom`
+                    } else if (prefix === 'type') {
+                        directPath = `type/${enc}-all.atom`
+                    } else if (prefix === 'language') {
+                        directPath = `index-${enc}.atom`
+                    }
+
+                    if (directPath) {
+                        try {
+                            const items = await this.fetchAtomSection(directPath, 25)
+                            if (items.length > 0) return App.createPagedResults({ results: items })
+                        } catch {}
+                    }
+                }
             }
-        } catch {
-            // If specific tag feed fails, fallback to general tag search
-            if (title) {
+
+            // 3b. Smart probe across candidate Hitomi tag/artist/series feeds
+            const enc = encodeURIComponent(clean)
+            const candidates = [
+                `tag/female:${enc}-all.atom`,
+                `artist/${enc}-all.atom`,
+                `tag/${enc}-all.atom`,
+                `series/${enc}-all.atom`,
+                `character/${enc}-all.atom`,
+                `tag/male:${enc}-all.atom`,
+                `group/${enc}-all.atom`
+            ]
+
+            for (const cand of candidates) {
                 try {
-                    const cleanTitle = encodeURIComponent(title.toLowerCase().replace(/\s+/g, ' '))
-                    const fallbackItems = await this.fetchAtomSection(`tag/${cleanTitle}-all.atom`, 25)
-                    return App.createPagedResults({ results: fallbackItems })
+                    const items = await this.fetchAtomSection(cand, 25)
+                    if (items.length > 0) {
+                        return App.createPagedResults({ results: items })
+                    }
                 } catch {
-                    // Empty if not found
+                    // Try next candidate
                 }
             }
         }
 
+        // Default: return recent items
+        const recent = await this.fetchAtomSection('index-all.atom', 25)
         return App.createPagedResults({
-            results: []
+            results: recent
         })
     }
 
@@ -340,18 +399,40 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             App.createTag({ id: 'index-spanish', label: 'Spanish' })
         ]
 
-        const popularTags: Tag[] = [
+        const femaleTags: Tag[] = [
+            App.createTag({ id: 'tag/female:schoolgirl%20uniform', label: 'Schoolgirl Uniform ♀' }),
             App.createTag({ id: 'tag/female:yuri', label: 'Yuri ♀' }),
-            App.createTag({ id: 'tag/female:schoolgirl_uniform', label: 'Schoolgirl Uniform ♀' }),
-            App.createTag({ id: 'tag/female:big_breasts', label: 'Big Breasts ♀' }),
-            App.createTag({ id: 'tag/female:sole_female', label: 'Sole Female ♀' }),
-            App.createTag({ id: 'tag/male:sole_male', label: 'Sole Male ♂' })
+            App.createTag({ id: 'tag/female:big%20breasts', label: 'Big Breasts ♀' }),
+            App.createTag({ id: 'tag/female:sole%20female', label: 'Sole Female ♀' }),
+            App.createTag({ id: 'tag/female:stockings', label: 'Stockings ♀' }),
+            App.createTag({ id: 'tag/female:maid', label: 'Maid ♀' }),
+            App.createTag({ id: 'tag/female:swimsuit', label: 'Swimsuit ♀' }),
+            App.createTag({ id: 'tag/female:nakadashi', label: 'Nakadashi ♀' }),
+            App.createTag({ id: 'tag/female:ahegao', label: 'Ahegao ♀' }),
+            App.createTag({ id: 'tag/female:milf', label: 'Milf ♀' }),
+            App.createTag({ id: 'tag/female:gyaru', label: 'Gyaru ♀' })
+        ]
+
+        const maleTags: Tag[] = [
+            App.createTag({ id: 'tag/male:sole%20male', label: 'Sole Male ♂' }),
+            App.createTag({ id: 'tag/male:shota', label: 'Shota ♂' }),
+            App.createTag({ id: 'tag/male:glasses', label: 'Glasses ♂' }),
+            App.createTag({ id: 'tag/male:dilf', label: 'Dilf ♂' })
+        ]
+
+        const generalTags: Tag[] = [
+            App.createTag({ id: 'tag/full%20color', label: 'Full Color' }),
+            App.createTag({ id: 'tag/group', label: 'Group' }),
+            App.createTag({ id: 'tag/vanilla', label: 'Vanilla' }),
+            App.createTag({ id: 'tag/incest', label: 'Incest' })
         ]
 
         return [
             App.createTagSection({ id: 'categories', label: 'Categories', tags: categories }),
             App.createTagSection({ id: 'languages', label: 'Languages', tags: languages }),
-            App.createTagSection({ id: 'tags', label: 'Popular Tags', tags: popularTags })
+            App.createTagSection({ id: 'female', label: 'Female Tags', tags: femaleTags }),
+            App.createTagSection({ id: 'male', label: 'Male Tags', tags: maleTags }),
+            App.createTagSection({ id: 'general', label: 'General Tags', tags: generalTags })
         ]
     }
 
