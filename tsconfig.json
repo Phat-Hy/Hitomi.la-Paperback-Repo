@@ -19,6 +19,7 @@
     "noUncheckedIndexedAccess": false,
     "noImplicitOverride": true,
     "moduleResolution": "node",
+    "skipLibCheck": true,
     "esModuleInterop": true
   },
   "include": [

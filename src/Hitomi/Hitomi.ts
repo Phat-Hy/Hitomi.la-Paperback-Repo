@@ -22,24 +22,26 @@ import {
     Tag,
     TagSection
 } from '@paperback/types'
+import { searchGalleryIdsByTerm } from './HitomiBTree'
 import { HitomiGallery } from './HitomiModels'
 import {
     ImageUriResolver,
     parseGalleryJson,
     parseGalleryToChapterDetails,
-    parseGalleryToSourceManga
+    parseGalleryToSourceManga,
+    responseToArrayBuffer
 } from './HitomiParser'
 
 const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.1.0',
+    version: '1.2.0',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
     authorWebsite: 'https://github.com/Phat-Hy',
-    description: 'Full-featured extension for hitomi.la with smart search and multi-section homepage',
+    description: 'Full-featured extension for hitomi.la with B-Tree title search and multi-section homepage',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: HITOMI_DOMAIN,
     sourceTags: [
@@ -87,6 +89,20 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         } catch {
             // ImageUriResolver has resilient internal fallback mappings
         }
+    }
+
+    private fetchBinary = async (url: string, headers?: Record<string, string>): Promise<ArrayBuffer> => {
+        const request = App.createRequest({
+            url,
+            method: 'GET',
+            headers: {
+                ...(headers || {}),
+                referer: `${HITOMI_DOMAIN}/`,
+                'user-agent': await this.requestManager.getDefaultUserAgent()
+            }
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        return responseToArrayBuffer(response)
     }
 
     private async fetchGallery(id: string): Promise<HitomiGallery> {
@@ -314,7 +330,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             }
         }
 
-        // 3. User typed search query
+        // 3. User typed search query (e.g. title, character, or artist)
         if (title) {
             const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -351,7 +367,24 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 }
             }
 
-            // 3b. Smart probe across candidate Hitomi tag/artist/series feeds
+            // 3b. Hitomi B-Tree Index Search (official galleries B-Tree index by title/term)
+            try {
+                const btreeIds = await searchGalleryIdsByTerm(clean, this.fetchBinary)
+                if (btreeIds.length > 0) {
+                    const topIds = btreeIds.slice(0, 24)
+                    const items = await Promise.all(
+                        topIds.map(id => this.buildPartialSourceManga(id))
+                    )
+                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
+                    if (valid.length > 0) {
+                        return App.createPagedResults({ results: valid })
+                    }
+                }
+            } catch {
+                // If B-Tree lookup encountered a network issue, fall through to tag probe
+            }
+
+            // 3c. Smart probe across candidate Hitomi tag/artist/series feeds
             const enc = encodeURIComponent(clean)
             const candidates = [
                 `tag/female:${enc}-all.atom`,
@@ -373,9 +406,14 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                     // Try next candidate
                 }
             }
+
+            // No matches found for this query - return empty results
+            return App.createPagedResults({
+                results: []
+            })
         }
 
-        // Default: return recent items
+        // 4. Empty search query (user pressed enter with no text): show recent
         const recent = await this.fetchAtomSection('index-all.atom', 25)
         return App.createPagedResults({
             results: recent
