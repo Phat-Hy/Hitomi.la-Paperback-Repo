@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.3',
+    version: '1.2.4',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -69,8 +69,8 @@ function encodeSearchQueryForUrl(s: string): string {
 
 export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterProviding, HomePageSectionsProviding {
     requestManager = App.createRequestManager({
-        requestsPerSecond: 15,
-        requestTimeout: 15000,
+        requestsPerSecond: 25,
+        requestTimeout: 20000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {
                 request.headers = {
@@ -395,25 +395,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
 
             // 3b. Hitomi Official TagIndex Suggestion Search (Fastest for series, tags, characters, and artists)
             try {
-                let suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
-
-                // For multi-word queries that don't match an entire phrase in TagIndex:
-                // Only fall back to constituent keywords if they match a specific series, character, or artist AND appear in the user query!
-                // NEVER fall back to generic tags (female/male/tag) or unrelated characters when user typed a multi-word title!
-                if (suggestions.length === 0 && clean.includes(' ')) {
-                    const words = clean.split(' ').filter(w => w.length > 2 && !['english', 'japanese', 'chinese'].includes(w))
-                    for (const word of words) {
-                        const wordSuggestions = await this.fetchTagIndexSuggestions(word, 'global')
-                        const specific = wordSuggestions.filter(s =>
-                            ['series', 'character', 'artist'].includes(s.namespace) &&
-                            clean.includes(s.name.toLowerCase())
-                        )
-                        if (specific.length > 0) {
-                            suggestions = specific
-                            break
-                        }
-                    }
-                }
+                const suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
 
                 if (suggestions.length > 0) {
                     const topSuggestions = suggestions.slice(0, 2)

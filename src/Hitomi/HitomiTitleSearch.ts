@@ -2,6 +2,7 @@
 
 import { RequestManager, Response } from '@paperback/types'
 
+const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 const GALLERIES_INDEX_DIR = 'galleriesindex'
 const B = 16
@@ -139,16 +140,38 @@ function hashTerm(term: string): Uint8Array {
 }
 
 function responseToUint8Array(response: Response): Uint8Array {
-    if (response.rawData && response.rawData.length > 0) {
+    if (response.rawData) {
+        // 1. Official Paperback API for converting Swift RawData to Uint8Array
+        if (typeof (App as any)?.createByteArray === 'function') {
+            try {
+                const arr = (App as any).createByteArray(response.rawData)
+                if (arr && (arr.length > 0 || (response.rawData as any).length === 0)) {
+                    return arr instanceof Uint8Array ? arr : new Uint8Array(arr)
+                }
+            } catch {}
+        }
+        // 2. Direct Uint8Array check
+        if (response.rawData instanceof Uint8Array) {
+            return response.rawData
+        }
+        // 3. ArrayBuffer view check
+        if ((response.rawData as any)?.buffer instanceof ArrayBuffer) {
+            const raw = response.rawData as any
+            return new Uint8Array(raw.buffer, raw.byteOffset ?? 0, raw.byteLength ?? raw.length)
+        }
+        // 4. Indexed elements fallback
         const raw = response.rawData
         const len = raw.length
-        const u8 = new Uint8Array(len)
-        for (let i = 0; i < len; i++) {
-            u8[i] = raw[i] as number
+        if (typeof len === 'number' && len > 0 && typeof (raw as any)[0] === 'number') {
+            const u8 = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+                u8[i] = (raw[i] ?? 0) as number
+            }
+            return u8
         }
-        return u8
     }
-    if (typeof response.data === 'string') {
+    // 5. String fallback (latin1 / binary character code)
+    if (typeof response.data === 'string' && response.data.length > 0) {
         const str = response.data
         const len = str.length
         const u8 = new Uint8Array(len)
@@ -312,16 +335,33 @@ export async function searchGalleryTitlesHitomi(
     const indexUrl = `${LTN_DOMAIN}/${GALLERIES_INDEX_DIR}/galleries.${ver}.index`
     const dataUrl = `${LTN_DOMAIN}/${GALLERIES_INDEX_DIR}/galleries.${ver}.data`
 
+    // In-memory node cache for the current search session (prevents duplicate downloads of root and parent nodes)
+    const nodeCache = new Map<string, Uint8Array>()
+
     const fetchRange = async (url: string, start: number, end: number): Promise<Uint8Array> => {
+        const cacheKey = `${url}:${start}-${end}`
+        const cached = nodeCache.get(cacheKey)
+        if (cached) return cached
+
+        // Explicit byte-range query parameter to prevent iOS URLSession / URLCache from reusing mismatched 206 responses
+        const sep = url.includes('?') ? '&' : '?'
+        const reqUrl = `${url}${sep}r=${start}-${end}`
+
         const req = App.createRequest({
-            url,
+            url: reqUrl,
             method: 'GET',
             headers: {
-                Range: `bytes=${start}-${end}`
+                Range: `bytes=${start}-${end}`,
+                Referer: `${HITOMI_DOMAIN}/`,
+                'Cache-Control': 'no-cache'
             }
         })
         const res = await requestManager.schedule(req, 1)
-        return responseToUint8Array(res)
+        const bytes = responseToUint8Array(res)
+        if (bytes.length > 0) {
+            nodeCache.set(cacheKey, bytes)
+        }
+        return bytes
     }
 
     const searchWord = async (word: string): Promise<number[]> => {
@@ -345,19 +385,18 @@ export async function searchGalleryTitlesHitomi(
     }
 
     // Filter out common English stop words if multiple terms are present
-    const termsToSearch = rawTerms.length > 1
-        ? rawTerms.filter(t => !STOP_WORDS.has(t) && t.length > 1)
-        : rawTerms
+    const nonStopTerms = rawTerms.filter(t => !STOP_WORDS.has(t) && t.length > 1)
+    const termsToSearch = nonStopTerms.length > 0 ? nonStopTerms : rawTerms
 
     if (termsToSearch.length === 0) return []
 
     const wordResults: number[][] = []
     for (const term of termsToSearch) {
         let ids = await searchWord(term)
-        // If not found with punctuation, also try stripped term (e.g. "other!!" -> "other")
+        // If not found with exact punctuation, also try stripped term (e.g. "mother," -> "mother")
         if (ids.length === 0 && /[^\w]/.test(term)) {
             const stripped = term.replace(/[^\w]/g, '')
-            if (stripped.length > 0) {
+            if (stripped.length > 0 && stripped !== term) {
                 ids = await searchWord(stripped)
             }
         }
