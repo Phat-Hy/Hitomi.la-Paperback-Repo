@@ -7,7 +7,7 @@ const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 const GALLERIES_INDEX_DIR = 'galleriesindex'
 const B = 16
 const MAX_NODE_SIZE = 464
-const MAX_DATA_RANGE_BYTES = 250000 // Cap data chunk download to ~60,000 IDs
+const MAX_DATA_RANGE_BYTES = 1000000 // Allow up to 1 MB data chunk download
 
 let cachedVersion: string | null = null
 let cachedVersionTs = 0
@@ -430,62 +430,89 @@ export async function searchGalleryTitlesHitomi(
         return bytes
     }
 
-    const searchWord = async (word: string): Promise<number[]> => {
-        const key = hashTerm(word)
-        try {
-            const rootData = await fetchRange(indexUrl, 0, MAX_NODE_SIZE - 1)
-            const rootNode = decodeNode(rootData)
-            if (!rootNode) return []
-
-            const range = await bSearch(indexUrl, key, rootNode, fetchRange)
-            if (!range) return []
-
-            const [offset, length] = range
-            if (length <= 0 || length > MAX_DATA_RANGE_BYTES) return []
-
-            const buf = await fetchRange(dataUrl, offset, offset + length - 1)
-            return parseGalleryIdsFromData(buf)
-        } catch {
-            return []
-        }
-    }
-
     // Filter out common English stop words if multiple terms are present
     const nonStopTerms = rawTerms.filter(t => !STOP_WORDS.has(t) && t.length > 1)
     const termsToSearch = nonStopTerms.length > 0 ? nonStopTerms : rawTerms
 
     if (termsToSearch.length === 0) return []
 
-    const wordResults: number[][] = []
-    for (const term of termsToSearch) {
-        let ids = await searchWord(term)
-        // If not found with exact punctuation, also try stripped term (e.g. "mother," -> "mother")
-        if (ids.length === 0 && /[^\w]/.test(term)) {
-            const stripped = term.replace(/[^\w]/g, '')
-            if (stripped.length > 0 && stripped !== term) {
-                ids = await searchWord(stripped)
+    const rootData = await fetchRange(indexUrl, 0, MAX_NODE_SIZE - 1)
+    const rootNode = decodeNode(rootData)
+    if (!rootNode) return []
+
+    interface TermRange {
+        term: string;
+        offset: number;
+        length: number;
+    }
+
+    // Phase 1: Locate B-Tree index data ranges for each term (lightweight index lookups)
+    const termRanges: TermRange[] = []
+    for (let i = 0; i < termsToSearch.length; i++) {
+        const t = termsToSearch[i]!
+        let range = await bSearch(indexUrl, hashTerm(t), rootNode, fetchRange)
+        let actualTerm = t
+
+        // If not found with exact punctuation, try stripped term
+        if (!range && /[^\w]/.test(t)) {
+            const stripped = t.replace(/[^\w]/g, "")
+            if (stripped.length > 0) {
+                range = await bSearch(indexUrl, hashTerm(stripped), rootNode, fetchRange)
+                actualTerm = stripped
+            }
+        } else if ((!range || range[1] > 20000) && i === termsToSearch.length - 1 && !/[^\w]/.test(t)) {
+            // If last word has no punctuation and matched a huge range, check common title punctuation (e.g. "other!!" for "other")
+            const rExcl = await bSearch(indexUrl, hashTerm(t + "!!"), rootNode, fetchRange)
+            if (rExcl && rExcl[1] > 0 && (!range || rExcl[1] < range[1])) {
+                range = rExcl
+                actualTerm = t + "!!"
             }
         }
-        if (ids.length > 0) {
-            wordResults.push(ids)
+
+        if (range && range[1] > 0) {
+            termRanges.push({ term: actualTerm, offset: range[0], length: range[1] })
         }
     }
 
-    if (wordResults.length === 0) return []
+    if (termRanges.length === 0) return []
 
-    // Sort word results so smallest list is first (for fast set intersection)
-    wordResults.sort((a, b) => a.length - b.length)
+    // Sort term ranges so the smallest/most specific data chunk is downloaded first
+    termRanges.sort((a, b) => a.length - b.length)
 
-    let current = new Set(wordResults[0])
-    for (let i = 1; i < wordResults.length; i++) {
-        const nextSet = new Set(wordResults[i])
-        const nextInter = new Set<number>()
-        for (const id of current) {
-            if (nextSet.has(id)) nextInter.add(id)
+    // Phase 2: Download the smallest data chunk to seed candidate IDs
+    let candidateIds: number[] = []
+    let primaryIndex = 0
+    while (primaryIndex < termRanges.length && candidateIds.length === 0) {
+        const primary = termRanges[primaryIndex]!
+        primaryIndex++
+        if (primary.length > 0 && primary.length <= MAX_DATA_RANGE_BYTES) {
+            const primaryBuf = await fetchRange(dataUrl, primary.offset, primary.offset + primary.length - 1)
+            candidateIds = parseGalleryIdsFromData(primaryBuf)
         }
-        current = nextInter
-        if (current.size === 0) break
     }
 
-    return Array.from(current)
+    if (candidateIds.length === 0) return []
+
+    // Phase 3: Filter candidate IDs against remaining terms using fast binary DataView scanning
+    for (let i = primaryIndex; i < termRanges.length; i++) {
+        const tr = termRanges[i]!
+        if (candidateIds.length === 0) break
+        if (tr.length > MAX_DATA_RANGE_BYTES) continue
+
+        const chunkBuf = await fetchRange(dataUrl, tr.offset, tr.offset + tr.length - 1)
+        if (!chunkBuf || chunkBuf.length < 4) continue
+
+        const dv = new DataView(chunkBuf.buffer, chunkBuf.byteOffset, chunkBuf.byteLength)
+        const count = dv.getInt32(0, false)
+        if (count <= 0) continue
+
+        candidateIds = candidateIds.filter(id => {
+            for (let j = 0; j < count; j++) {
+                if (dv.getInt32(4 + j * 4, false) === id) return true
+            }
+            return false
+        })
+    }
+
+    return candidateIds
 }

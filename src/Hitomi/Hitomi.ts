@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.5',
+    version: '1.2.6',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -384,9 +384,37 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 }
             }
 
-            // 2b. Hitomi Official TagIndex Suggestion Search (Fastest for series, tags, characters, and artists)
+            // 2b. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
             try {
-                const suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
+                const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
+                if (titleIds.length > 0) {
+                    const topIds = titleIds.slice(0, 30)
+                    const items = await Promise.all(
+                        topIds.map(id => this.buildPartialSourceManga(id))
+                    )
+                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
+                    if (valid.length > 0) {
+                        // Rank results so exact phrase and word matches in title appear first
+                        const queryWords = clean.split(/\s+/).filter(w => w.length > 1)
+                        valid.sort((a, b) => {
+                            const aTitle = a.title.toLowerCase()
+                            const bTitle = b.title.toLowerCase()
+                            const aExact = aTitle.includes(clean) ? 100 : 0
+                            const bExact = bTitle.includes(clean) ? 100 : 0
+                            const aMatches = aExact + queryWords.filter(w => aTitle.includes(w)).length
+                            const bMatches = bExact + queryWords.filter(w => bTitle.includes(w)).length
+                            return bMatches - aMatches
+                        })
+                        return App.createPagedResults({ results: valid })
+                    }
+                }
+            } catch {
+                // Continue to tag suggestion fallback
+            }
+
+            // 2c. Fallback TagIndex Suggestion Search (Used when title search yielded no results)
+            try {
+                const suggestions = await this.fetchTagIndexSuggestions(clean, "global")
 
                 if (suggestions.length > 0) {
                     const topSuggestions = suggestions.slice(0, 2)
@@ -401,35 +429,8 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                     }
                 }
             } catch {
-                // If TagIndex request fails, continue to B-Tree title search
-            }
-
-            // 2c. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
-            try {
-                const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
-                if (titleIds.length > 0) {
-                    const topIds = titleIds.slice(0, 30)
-                    const items = await Promise.all(
-                        topIds.map(id => this.buildPartialSourceManga(id))
-                    )
-                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
-                    if (valid.length > 0) {
-                        // Rank results so exact word matches in title appear first
-                        const queryWords = clean.split(/\s+/).filter(w => w.length > 1)
-                        valid.sort((a, b) => {
-                            const aTitle = a.title.toLowerCase()
-                            const bTitle = b.title.toLowerCase()
-                            const aMatches = queryWords.filter(w => aTitle.includes(w)).length
-                            const bMatches = queryWords.filter(w => bTitle.includes(w)).length
-                            return bMatches - aMatches
-                        })
-                        return App.createPagedResults({ results: valid })
-                    }
-                }
-            } catch {
                 // Continue to candidate fallback probe
             }
-
             // 2d. Direct candidate probe across common Hitomi feeds
             const enc = encodeURIComponent(clean)
             const candidates = [

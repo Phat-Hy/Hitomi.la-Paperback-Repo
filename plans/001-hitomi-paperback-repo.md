@@ -28,3 +28,10 @@ Build a fully functional extension repository for the **Hitomi.la** source targe
   3. Streamlined homepage to 5 essential sections with individual try/catch emission (`sectionCallback`), ensuring each section appears immediately on screen.
   4. Removed `CLOUDFLARE_BYPASS_REQUIRED` intent flag to eliminate unnecessary bypass prompts.
   5. Tested and verified locally with mock runtime and confirmed live deployment on GitHub Pages.
+- **v1.2.5**: Fixed filter hijacking and iOS binary parsing.
+- **v1.2.6 (Title Search Perfected)**:
+  1. Re-architected B-Tree galleriesindex title search into two-phase execution: Phase 1 locates data ranges for all candidate terms in the B-Tree index; Phase 2 sorts ranges by length ascending and downloads the smallest/most specific data chunk first (e.g. 120 bytes for other!! -> 29 IDs) instead of downloading large stop-word chunks first.
+  2. Implemented fast in-memory DataView byte scanning for candidate ID intersection with secondary terms.
+  3. Added title punctuation awareness: detects other!! when user searches Mother and No Other or Mother and No Other!!, and detects mother, for Mother, It Has to Be You.
+  4. Moved B-Tree title search to run before TagIndex autocomplete suggestions, preventing tag suggestions from hijacking title queries.
+  5. Added title relevance sorting with exact phrase bonus (+100) so chapters of the searched title appear first in results.
