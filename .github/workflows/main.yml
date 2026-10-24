@@ -18,7 +18,7 @@ jobs:
         node-version: [20.x]
 
     steps:
-      - name: Checkout Branch
+      - name: Checkout Source
         uses: actions/checkout@v4.1.2
 
       - name: Setup Node.js environment
@@ -26,33 +26,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Extract branch name
-        shell: bash
-        run: echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
-        id: extract_branch
-
-      - name: Checkout existing bundles
-        uses: actions/checkout@v4.1.2
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: bundles
-
       - name: Install dependencies
         run: npm install
 
       - name: Bundle extensions
-        shell: bash
         run: |
-          # Remove internal .git so it doesn't conflict with deploy action
-          rm -rf bundles/.git
-          mkdir -p bundles
-          TARGET_FOLDER="${{ steps.extract_branch.outputs.branch }}"
-          if [ "$TARGET_FOLDER" = "main" ] || [ "$TARGET_FOLDER" = "master" ]; then
-            TARGET_FOLDER="0.8"
-          fi
           npx paperback bundle
-          npx paperback bundle --folder="$TARGET_FOLDER"
+          npx paperback bundle --folder=0.8
           touch bundles/.nojekyll
 
       - name: Deploy to GitHub Pages
@@ -60,7 +40,5 @@ jobs:
         with:
           branch: gh-pages
           folder: bundles
+          single-commit: true
           token: ${{ secrets.GITHUB_TOKEN }}
-          git-config-name: "github-actions[bot]"
-          git-config-email: "github-actions[bot]@users.noreply.github.com"
-          clean: false
