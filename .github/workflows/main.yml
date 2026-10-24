@@ -5,6 +5,9 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Bundle and Publish Sources
@@ -41,18 +44,18 @@ jobs:
       - name: Bundle extensions
         shell: bash
         run: |
+          mkdir -p bundles
           TARGET_FOLDER="${{ steps.extract_branch.outputs.branch }}"
           if [ "$TARGET_FOLDER" = "main" ] || [ "$TARGET_FOLDER" = "master" ]; then
             TARGET_FOLDER="0.8"
           fi
-          npm run bundle -- --folder="$TARGET_FOLDER"
-          # Also ensure root has versioning.json if folder is 0.8
-          if [ -d "bundles/$TARGET_FOLDER" ]; then
-            cp -r bundles/$TARGET_FOLDER/* bundles/ || true
-          fi
+          npx paperback bundle
+          npx paperback bundle --folder="$TARGET_FOLDER"
+          touch bundles/.nojekyll
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4.5.0
         with:
           branch: gh-pages
           folder: bundles
+          token: ${{ secrets.GITHUB_TOKEN }}
