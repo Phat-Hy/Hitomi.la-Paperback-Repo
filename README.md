@@ -3,7 +3,7 @@
 Official Paperback v0.8 source repository for [Hitomi.la](https://hitomi.la).
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.2.10-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![Version](https://img.shields.io/badge/version-1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
 
 ---

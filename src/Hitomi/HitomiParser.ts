@@ -12,11 +12,13 @@ import { HitomiFile, HitomiGallery, HitomiTag } from './HitomiModels'
 const IMAGE_DOMAIN = 'gold-usergeneratedcontent.net'
 
 export class ImageUriResolver {
-    private static b = '1792872002/'
-    private static o = 0
+    private static b = '1792879202/'
+    private static defaultO = 0
+    private static caseO = 1
     private static cases = new Set<number>()
+    private static ggFunction: ((g: number) => number) | null = null
     private static lastSyncedAt = 0
-    private static readonly GG_CACHE_TTL_MS = 30 * 60 * 1000
+    private static readonly GG_CACHE_TTL_MS = 15 * 60 * 1000
 
     static needsSync(): boolean {
         return ImageUriResolver.cases.size === 0 || Date.now() - ImageUriResolver.lastSyncedAt > ImageUriResolver.GG_CACHE_TTL_MS
@@ -30,10 +32,23 @@ export class ImageUriResolver {
             ImageUriResolver.b = bMatch[1].replace(/\/$/, '') + '/'
         }
 
-        const oMatch = responseText.match(/(?:var\s+)?o\s*=\s*(\d+)/)
-        if (oMatch && oMatch[1]) {
-            ImageUriResolver.o = parseInt(oMatch[1], 10)
+        // 1. Dynamic extraction of authentic gg.m function
+        try {
+            const fn = new Function('var gg;\n' + responseText + '\nreturn (typeof gg !== "undefined" && typeof gg.m === "function") ? gg.m : null;')
+            const mFn = fn()
+            if (typeof mFn === 'function') {
+                ImageUriResolver.ggFunction = mFn
+            }
+        } catch {
+            ImageUriResolver.ggFunction = null
         }
+
+        // 2. Dynamic fallback parser: inspect default o and case o
+        const defaultOMatch = responseText.match(/(?:var\s+)?o\s*=\s*(\d+)/)
+        ImageUriResolver.defaultO = defaultOMatch ? parseInt(defaultOMatch[1], 10) : 0
+
+        const caseOMatch = responseText.match(/case\s+\d+:[\s\S]*?o\s*=\s*(\d+);\s*break;/)
+        ImageUriResolver.caseO = caseOMatch ? parseInt(caseOMatch[1], 10) : (1 - ImageUriResolver.defaultO)
 
         const caseMatches = responseText.matchAll(/case\s+(\d+):/g)
         for (const match of caseMatches) {
@@ -56,6 +71,17 @@ export class ImageUriResolver {
         ImageUriResolver.lastSyncedAt = Date.now()
     }
 
+    private static getM(g: number): number {
+        if (ImageUriResolver.ggFunction) {
+            try {
+                return ImageUriResolver.ggFunction(g)
+            } catch {
+                // Fall through to fallback parser
+            }
+        }
+        return ImageUriResolver.cases.has(g) ? ImageUriResolver.caseO : ImageUriResolver.defaultO
+    }
+
     static getImageUri(
         image: HitomiFile,
         extension: 'webp' | 'avif' = 'webp',
@@ -63,18 +89,16 @@ export class ImageUriResolver {
     ): string {
         const resolvedExtension = (extension === 'avif' && image.hasAvif) ? 'avif' : 'webp'
         const imageHashCode = parseInt(image.hash.slice(-1) + image.hash.slice(-3, -1), 16)
-        const isMatch = ImageUriResolver.cases.has(imageHashCode)
+        const m = ImageUriResolver.getM(imageHashCode)
 
         if (!options.isThumbnail) {
             // Full page image
-            const m = isMatch ? 0 : 1
             const prefix = resolvedExtension === 'avif' ? 'a' : 'w'
             const subdomain = `${prefix}${1 + m}`
             const path = `${ImageUriResolver.b}${imageHashCode}/${image.hash}`
             return `https://${subdomain}.${IMAGE_DOMAIN}/${path}.${resolvedExtension}`
         } else {
             // Thumbnail
-            const m = isMatch ? 0 : 1
             const prefix = String.fromCharCode(97 + m) + 'tn' // atn or btn
             const thumbType = options.isSmall ? 'smalltn' : 'bigtn'
             const path = `${resolvedExtension}${thumbType}/${image.hash.slice(-1)}/${image.hash.slice(-3, -1)}/${image.hash}`
