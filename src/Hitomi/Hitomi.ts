@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.8',
+    version: '1.2.9',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',

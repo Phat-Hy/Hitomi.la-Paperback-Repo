@@ -2,7 +2,6 @@
 
 import {
     ChapterDetails,
-    MangaStatus,
     Response,
     SourceManga,
     Tag,
@@ -251,7 +250,7 @@ export function parseGalleryToSourceManga(gallery: HitomiGallery, mangaId: strin
         mangaInfo: App.createMangaInfo({
             titles,
             image: thumbnail,
-            status: MangaStatus.COMPLETED,
+            status: 'Completed',
             artist: gallery.artists.length > 0 ? gallery.artists.join(', ') : 'Unknown',
             author: gallery.groups.length > 0 ? gallery.groups.join(', ') : gallery.artists[0] || 'Unknown',
             tags: tagSections,
