@@ -44,6 +44,8 @@ jobs:
       - name: Bundle extensions
         shell: bash
         run: |
+          # Remove internal .git so it doesn't conflict with deploy action
+          rm -rf bundles/.git
           mkdir -p bundles
           TARGET_FOLDER="${{ steps.extract_branch.outputs.branch }}"
           if [ "$TARGET_FOLDER" = "main" ] || [ "$TARGET_FOLDER" = "master" ]; then
@@ -59,3 +61,6 @@ jobs:
           branch: gh-pages
           folder: bundles
           token: ${{ secrets.GITHUB_TOKEN }}
+          git-config-name: "github-actions[bot]"
+          git-config-email: "github-actions[bot]@users.noreply.github.com"
+          clean: false
