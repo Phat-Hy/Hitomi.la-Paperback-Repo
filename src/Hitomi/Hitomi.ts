@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.7',
+    version: '1.2.8',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -65,6 +65,97 @@ function encodeSearchQueryForUrl(s: string): string {
         if (m === '.') return 'dot'
         return m
     })
+}
+
+interface SearchFilterRule {
+    namespace: 'language' | 'female' | 'male' | 'tag' | 'artist' | 'series' | 'character' | 'group' | 'type';
+    value: string;
+    negative: boolean;
+}
+
+function parseSearchQuery(rawQuery?: string, includedTags: Tag[] = []): { titleKeywords: string; rules: SearchFilterRule[] } {
+    const rules: SearchFilterRule[] = []
+    const remainingWords: string[] = []
+
+    // 1. Process includedTags from Paperback UI filter menu
+    for (const tag of includedTags) {
+        if (!tag || !tag.id) continue
+        const id = tag.id
+        if (id.startsWith('index-')) {
+            const lang = id.replace(/^index-/, '')
+            rules.push({ namespace: 'language', value: lang.toLowerCase(), negative: false })
+        } else if (id.startsWith('type/')) {
+            const type = id.replace(/^type\//, '')
+            rules.push({ namespace: 'type', value: type.toLowerCase(), negative: false })
+        } else if (id.startsWith('tag/female:')) {
+            const val = decodeURIComponent(id.replace(/^tag\/female:/, '')).replace(/_/g, ' ').toLowerCase()
+            rules.push({ namespace: 'female', value: val, negative: false })
+        } else if (id.startsWith('tag/male:')) {
+            const val = decodeURIComponent(id.replace(/^tag\/male:/, '')).replace(/_/g, ' ').toLowerCase()
+            rules.push({ namespace: 'male', value: val, negative: false })
+        } else if (id.startsWith('tag/')) {
+            const val = decodeURIComponent(id.replace(/^tag\//, '')).replace(/_/g, ' ').toLowerCase()
+            rules.push({ namespace: 'tag', value: val, negative: false })
+        }
+    }
+
+    if (!rawQuery) {
+        return { titleKeywords: '', rules }
+    }
+
+    // 2. Parse typed search text for namespace:value, -namespace:value, and title words
+    const regex = /(-?[a-zA-Z]+:(?:"[^"]+"|\S+))|("[^"]+")|(\S+)/g
+    let match: RegExpExecArray | null
+
+    const validNamespaces = new Map<string, SearchFilterRule['namespace']>([
+        ['language', 'language'],
+        ['lang', 'language'],
+        ['female', 'female'],
+        ['male', 'male'],
+        ['tag', 'tag'],
+        ['artist', 'artist'],
+        ['series', 'series'],
+        ['parody', 'series'],
+        ['character', 'character'],
+        ['char', 'character'],
+        ['group', 'group'],
+        ['circle', 'group'],
+        ['type', 'type']
+    ])
+
+    while ((match = regex.exec(rawQuery)) !== null) {
+        const token = match[0]
+        if (token.includes(':')) {
+            let negative = false
+            let cleanToken = token
+            if (cleanToken.startsWith('-')) {
+                negative = true
+                cleanToken = cleanToken.slice(1)
+            }
+            const colonIdx = cleanToken.indexOf(':')
+            const ns = cleanToken.slice(0, colonIdx).toLowerCase()
+            const val = cleanToken.slice(colonIdx + 1).replace(/^"|"$/g, '').trim().toLowerCase()
+
+            if (validNamespaces.has(ns)) {
+                rules.push({
+                    namespace: validNamespaces.get(ns)!,
+                    value: val.replace(/_/g, ' '),
+                    negative
+                })
+                continue
+            }
+        }
+
+        const cleanWord = token.replace(/^"|"$/g, '').trim()
+        if (cleanWord) {
+            remainingWords.push(cleanWord)
+        }
+    }
+
+    return {
+        titleKeywords: remainingWords.join(' '),
+        rules
+    }
 }
 
 export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterProviding, HomePageSectionsProviding {
@@ -119,6 +210,116 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         const gallery = parseGalleryJson(raw, id)
         this.galleryCache.set(id, gallery)
         return gallery
+    }
+
+    private matchesGalleryFilters(gallery: HitomiGallery, rules: SearchFilterRule[]): boolean {
+        if (!rules || rules.length === 0) return true
+
+        for (const rule of rules) {
+            let match = false
+            const val = rule.value.toLowerCase().replace(/_/g, ' ')
+
+            if (rule.namespace === 'language') {
+                const lang = (gallery.languageName.english || gallery.languageName.local || '').toLowerCase()
+                match = lang === val || lang.includes(val)
+            } else if (rule.namespace === 'type') {
+                match = (gallery.type || '').toLowerCase() === val
+            } else if (rule.namespace === 'female') {
+                match = gallery.tags.some(t => t.type === 'female' && t.name.toLowerCase() === val)
+            } else if (rule.namespace === 'male') {
+                match = gallery.tags.some(t => t.type === 'male' && t.name.toLowerCase() === val)
+            } else if (rule.namespace === 'tag') {
+                match = gallery.tags.some(t => t.name.toLowerCase() === val)
+            } else if (rule.namespace === 'artist') {
+                match = gallery.artists.some(a => a.toLowerCase().includes(val))
+            } else if (rule.namespace === 'series') {
+                match = gallery.series.some(s => s.toLowerCase().includes(val))
+            } else if (rule.namespace === 'character') {
+                match = gallery.characters.some(c => c.toLowerCase().includes(val))
+            } else if (rule.namespace === 'group') {
+                match = gallery.groups.some(g => g.toLowerCase().includes(val))
+            }
+
+            if (rule.negative) {
+                if (match) return false
+            } else {
+                if (!match) return false
+            }
+        }
+        return true
+    }
+
+    private async buildFilteredPartialManga(id: number, rules: SearchFilterRule[]): Promise<PartialSourceManga | null> {
+        try {
+            const gallery = await this.fetchGallery(String(id))
+            if (rules.length > 0 && !this.matchesGalleryFilters(gallery, rules)) {
+                return null
+            }
+
+            let thumbnail = ''
+            if (gallery.files.length > 0 && gallery.files[0]) {
+                thumbnail = ImageUriResolver.getImageUri(gallery.files[0], 'webp', { isThumbnail: true, isSmall: false })
+            }
+
+            const subtitleParts: string[] = []
+            if (gallery.artists.length > 0) subtitleParts.push(gallery.artists.join(', '))
+            if (gallery.languageName.english) subtitleParts.push(gallery.languageName.english)
+
+            return App.createPartialSourceManga({
+                mangaId: String(gallery.id),
+                image: thumbnail,
+                title: gallery.title.display,
+                subtitle: subtitleParts.join(' · ')
+            })
+        } catch {
+            return null
+        }
+    }
+
+    private async fetchNozomiIds(nozomiPath: string, page: number, limit = 25): Promise<number[]> {
+        const start = (page - 1) * limit * 4
+        const end = page * limit * 4 - 1
+        const cleanPath = nozomiPath.replace(/^\/+/, '')
+
+        try {
+            const req = App.createRequest({
+                url: `${LTN_DOMAIN}/${cleanPath}?r=${start}-${end}`,
+                method: 'GET',
+                headers: {
+                    Range: `bytes=${start}-${end}`,
+                    Referer: `${HITOMI_DOMAIN}/`
+                }
+            })
+            const res = await this.requestManager.schedule(req, 1)
+            const bytes = responseToUint8Array(res)
+            if (!bytes || bytes.length < 4) return []
+
+            const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+            const ids: number[] = []
+            for (let i = 0; i + 4 <= dv.byteLength; i += 4) {
+                ids.push(dv.getInt32(i, false))
+            }
+            return ids
+        } catch {
+            return []
+        }
+    }
+
+    private ruleToFeedPath(rule: SearchFilterRule): string {
+        const enc = encodeURIComponent(rule.value)
+        if (rule.namespace === 'female' || rule.namespace === 'male') {
+            return `tag/${rule.namespace}:${enc}-all`
+        }
+        if (rule.namespace === 'language') {
+            return `index-${enc}`
+        }
+        if (rule.namespace === 'type') {
+            return `type/${enc}-all`
+        }
+        if (rule.namespace === 'tag') {
+            return `tag/${enc}-all`
+        }
+        return `${rule.namespace}/${enc}-all`
     }
 
     private async buildPartialSourceManga(id: number): Promise<PartialSourceManga | null> {
@@ -376,10 +577,15 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         // 0a. Paginated continuation of Nozomi results (feeds, tags, categories)
         if (metadata?.nozomiPath && typeof metadata.nozomiPath === 'string') {
             const page: number = typeof metadata.page === 'number' ? metadata.page : 2
-            const items = await this.fetchNozomiSection(metadata.nozomiPath, page, 25)
-            const nextMetadata = items.length >= 25 ? { nozomiPath: metadata.nozomiPath, page: page + 1 } : undefined
+            const rules: SearchFilterRule[] = metadata.rules || []
+            const rawIds = await this.fetchNozomiIds(metadata.nozomiPath, page, 50)
+            const filteredItems = await Promise.all(
+                rawIds.map(id => this.buildFilteredPartialManga(id, rules))
+            )
+            const valid = filteredItems.filter((item): item is PartialSourceManga => item !== null)
+            const nextMetadata = rawIds.length >= 50 ? { nozomiPath: metadata.nozomiPath, page: page + 1, rules } : undefined
             return App.createPagedResults({
-                results: items,
+                results: valid,
                 metadata: nextMetadata
             })
         }
@@ -387,107 +593,78 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         // 0b. Paginated continuation of Title Search (allIds)
         if (metadata?.allIds && Array.isArray(metadata.allIds)) {
             const allIds: number[] = metadata.allIds
-            const offset: number = typeof metadata.offset === 'number' ? metadata.offset : 0
-            const batchSize = 25
-            const batchIds = allIds.slice(offset, offset + batchSize)
+            const rules: SearchFilterRule[] = metadata.rules || []
+            let offset: number = typeof metadata.offset === 'number' ? metadata.offset : 0
+            const batchLimit = 25
+            const matchedItems: PartialSourceManga[] = []
 
-            if (batchIds.length > 0) {
-                const items = await Promise.all(
-                    batchIds.map(id => this.buildPartialSourceManga(id))
+            while (offset < allIds.length && matchedItems.length < batchLimit) {
+                const nextBatch = allIds.slice(offset, offset + batchLimit)
+                offset += nextBatch.length
+
+                const batchItems = await Promise.all(
+                    nextBatch.map(id => this.buildFilteredPartialManga(id, rules))
                 )
-                const valid = items.filter((item): item is PartialSourceManga => item !== null)
-                const nextOffset = offset + batchSize
-                const nextMetadata = nextOffset < allIds.length ? { allIds, offset: nextOffset } : undefined
-
-                return App.createPagedResults({
-                    results: valid,
-                    metadata: nextMetadata
-                })
+                for (const item of batchItems) {
+                    if (item) matchedItems.push(item)
+                }
             }
 
-            return App.createPagedResults({ results: [] })
+            const nextMetadata = offset < allIds.length ? { allIds, offset, rules } : undefined
+            return App.createPagedResults({
+                results: matchedItems,
+                metadata: nextMetadata
+            })
         }
 
-        const title = query.title?.trim()
+        const { titleKeywords, rules } = parseSearchQuery(query.title, query.includedTags)
 
-        // 1. Direct gallery ID lookup
-        if (title && /^\d+$/.test(title)) {
-            const item = await this.buildPartialSourceManga(parseInt(title, 10))
+        // 1. Direct gallery ID lookup (if titleKeywords is digits only and no active rules)
+        if (titleKeywords && /^\d+$/.test(titleKeywords) && rules.length === 0) {
+            const item = await this.buildPartialSourceManga(parseInt(titleKeywords, 10))
             return App.createPagedResults({
                 results: item ? [item] : []
             })
         }
 
-        // 2. User typed search query (title, character, series, artist, or tag)
-        if (title) {
-            const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
-
-            // 2a. Explicit namespace prefix: artist:xxx, female:xxx, series:xxx, etc.
-            if (clean.includes(':')) {
-                const [prefix, ...rest] = clean.split(':')
-                const val = rest.join(':').trim()
-                if (val) {
-                    const enc = encodeURIComponent(val)
-                    let directPath = ''
-                    if (prefix === 'female' || prefix === 'male') {
-                        directPath = `tag/${prefix}:${enc}-all.atom`
-                    } else if (prefix === 'tag') {
-                        directPath = `tag/${enc}-all.atom`
-                    } else if (prefix === 'artist') {
-                        directPath = `artist/${enc}-all.atom`
-                    } else if (prefix === 'character') {
-                        directPath = `character/${enc}-all.atom`
-                    } else if (prefix === 'series' || prefix === 'parody') {
-                        directPath = `series/${enc}-all.atom`
-                    } else if (prefix === 'group') {
-                        directPath = `group/${enc}-all.atom`
-                    } else if (prefix === 'type') {
-                        directPath = `type/${enc}-all.atom`
-                    } else if (prefix === 'language') {
-                        directPath = `index-${enc}.atom`
-                    }
-
-                    if (directPath) {
-                        try {
-                            const items = await this.fetchAtomSection(directPath, 25)
-                            if (items.length > 0) {
-                                const nozomiPath = directPath.replace(/\.atom$/, '.nozomi')
-                                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
-                                return App.createPagedResults({ results: items, metadata: nextMetadata })
-                            }
-                        } catch {}
-                    }
-                }
-            }
-
-            // 2b. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
+        // 2. Title keywords present: e.g. "Mother and No Other!!" or "Mother and No Other!! language:english"
+        if (titleKeywords) {
             try {
-                const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
+                const titleIds = await searchGalleryTitlesHitomi(titleKeywords, this.requestManager)
                 if (titleIds.length > 0) {
-                    const batchSize = 25
                     const totalPool = titleIds.slice(0, 1000)
-                    const batchIds = totalPool.slice(0, batchSize)
-                    const items = await Promise.all(
-                        batchIds.map(id => this.buildPartialSourceManga(id))
-                    )
-                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
-                    if (valid.length > 0) {
-                        // Rank results so exact phrase and word matches in title appear first
-                        const queryWords = clean.split(/\s+/).filter(w => w.length > 1)
-                        valid.sort((a, b) => {
+                    const batchLimit = 25
+                    let offset = 0
+                    const matchedItems: PartialSourceManga[] = []
+
+                    while (offset < totalPool.length && matchedItems.length < batchLimit) {
+                        const nextBatch = totalPool.slice(offset, offset + batchLimit)
+                        offset += nextBatch.length
+
+                        const batchItems = await Promise.all(
+                            nextBatch.map(id => this.buildFilteredPartialManga(id, rules))
+                        )
+                        for (const item of batchItems) {
+                            if (item) matchedItems.push(item)
+                        }
+                    }
+
+                    if (matchedItems.length > 0) {
+                        const cleanWords = titleKeywords.toLowerCase().split(/\s+/).filter(w => w.length > 1)
+                        const cleanPhrase = titleKeywords.toLowerCase()
+                        matchedItems.sort((a, b) => {
                             const aTitle = a.title.toLowerCase()
                             const bTitle = b.title.toLowerCase()
-                            const aExact = aTitle.includes(clean) ? 100 : 0
-                            const bExact = bTitle.includes(clean) ? 100 : 0
-                            const aMatches = aExact + queryWords.filter(w => aTitle.includes(w)).length
-                            const bMatches = bExact + queryWords.filter(w => bTitle.includes(w)).length
+                            const aExact = aTitle.includes(cleanPhrase) ? 100 : 0
+                            const bExact = bTitle.includes(cleanPhrase) ? 100 : 0
+                            const aMatches = aExact + cleanWords.filter(w => aTitle.includes(w)).length
+                            const bMatches = bExact + cleanWords.filter(w => bTitle.includes(w)).length
                             return bMatches - aMatches
                         })
 
-                        const nextMetadata = totalPool.length > batchSize ? { allIds: totalPool, offset: batchSize } : undefined
-
+                        const nextMetadata = offset < totalPool.length ? { allIds: totalPool, offset, rules } : undefined
                         return App.createPagedResults({
-                            results: valid,
+                            results: matchedItems,
                             metadata: nextMetadata
                         })
                     }
@@ -495,73 +672,44 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             } catch {
                 // Continue to tag suggestion fallback
             }
+        }
 
-            // 2c. Fallback TagIndex Suggestion Search (Used when title search yielded no results)
-            try {
-                const suggestions = await this.fetchTagIndexSuggestions(clean, "global")
-
-                if (suggestions.length > 0) {
-                    const topSuggestions = suggestions.slice(0, 2)
-                    for (const sug of topSuggestions) {
-                        const path = this.suggestionToAtomPath(sug)
-                        try {
-                            const items = await this.fetchAtomSection(path, 25)
-                            if (items.length > 0) {
-                                const nozomiPath = path.replace(/\.atom$/, '.nozomi')
-                                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
-                                return App.createPagedResults({ results: items, metadata: nextMetadata })
-                            }
-                        } catch {}
-                    }
+        // 3. No title keywords, but namespace rules present (e.g. "language:english female:milf" or filter tag selections)
+        if (rules.length > 0) {
+            const primaryRule = rules.find(r => !r.negative && r.namespace !== 'language') || rules.find(r => !r.negative)
+            if (primaryRule) {
+                const basePath = this.ruleToFeedPath(primaryRule)
+                const nozomiPath = `${basePath}.nozomi`
+                const rawIds = await this.fetchNozomiIds(nozomiPath, 1, 50)
+                if (rawIds.length > 0) {
+                    const filteredItems = await Promise.all(
+                        rawIds.map(id => this.buildFilteredPartialManga(id, rules))
+                    )
+                    const valid = filteredItems.filter((item): item is PartialSourceManga => item !== null)
+                    const nextMetadata = rawIds.length >= 50 ? { nozomiPath, page: 2, rules } : undefined
+                    return App.createPagedResults({
+                        results: valid,
+                        metadata: nextMetadata
+                    })
                 }
-            } catch {
-                // Continue to candidate fallback probe
-            }
 
-            // 2d. Direct candidate probe across common Hitomi feeds
-            const enc = encodeURIComponent(clean)
-            const candidates = [
-                `series/${enc}-all.atom`,
-                `artist/${enc}-all.atom`,
-                `character/${enc}-all.atom`,
-                `tag/female:${enc}-all.atom`,
-                `tag/${enc}-all.atom`,
-                `tag/male:${enc}-all.atom`,
-                `group/${enc}-all.atom`
-            ]
-
-            for (const cand of candidates) {
+                // Fallback to atom if nozomi not found
                 try {
-                    const items = await this.fetchAtomSection(cand, 25)
-                    if (items.length > 0) {
-                        const nozomiPath = cand.replace(/\.atom$/, '.nozomi')
-                        const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
-                        return App.createPagedResults({ results: items, metadata: nextMetadata })
-                    }
-                } catch {
-                    // Try next candidate
-                }
-            }
-
-            // No matches found for this query - return empty results
-            return App.createPagedResults({
-                results: []
-            })
-        }
-
-        // 3. Filter Tag search (when user browses by tag without typing a search query)
-        if (query.includedTags && query.includedTags.length > 0) {
-            const tag = query.includedTags[0]
-            if (tag && tag.id) {
-                const path = `${tag.id}-all.atom`
-                const items = await this.fetchAtomSection(path, 25)
-                const nozomiPath = `${tag.id}-all.nozomi`
-                const nextMetadata = items.length >= 25 ? { nozomiPath, page: 2 } : undefined
-                return App.createPagedResults({ results: items, metadata: nextMetadata })
+                    const atomPath = `${basePath}.atom`
+                    const items = await this.fetchAtomSection(atomPath, 25)
+                    const filtered = await Promise.all(
+                        items.map(async m => {
+                            const g = await this.fetchGallery(m.mangaId)
+                            return this.matchesGalleryFilters(g, rules) ? m : null
+                        })
+                    )
+                    const valid = filtered.filter((item): item is PartialSourceManga => item !== null)
+                    return App.createPagedResults({ results: valid })
+                } catch {}
             }
         }
 
-        // 4. Empty search query (user pressed enter with no text): show recent
+        // 4. Empty search (user pressed enter with no query and no tags): show recent
         const recent = await this.fetchAtomSection('index-all.atom', 25)
         const nextMetadata = recent.length >= 25 ? { nozomiPath: 'index-all.nozomi', page: 2 } : undefined
         return App.createPagedResults({
