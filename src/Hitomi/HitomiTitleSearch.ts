@@ -139,46 +139,112 @@ function hashTerm(term: string): Uint8Array {
     return sha256(new Uint8Array(bytes)).slice(0, 4)
 }
 
-function responseToUint8Array(response: Response): Uint8Array {
-    if (response.rawData) {
-        // 1. Official Paperback API for converting Swift RawData to Uint8Array
-        if (typeof (App as any)?.createByteArray === 'function') {
+function decodeBase64(b64: string): Uint8Array {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    const lookup = new Uint8Array(256)
+    for (let i = 0; i < chars.length; i++) {
+        lookup[chars.charCodeAt(i)] = i
+    }
+    const clean = b64.replace(/[^A-Za-z0-9+/]/g, '')
+    const len = clean.length
+    if (len === 0) return new Uint8Array(0)
+    const placeHolders = clean.charAt(len - 2) === '=' ? 2 : (clean.charAt(len - 1) === '=' ? 1 : 0)
+    const bytesLen = (len * 3) / 4 - placeHolders
+    const u8 = new Uint8Array(bytesLen)
+    let cur = 0
+    for (let i = 0; i < len; i += 4) {
+        const a = lookup[clean.charCodeAt(i)] ?? 0
+        const b = lookup[clean.charCodeAt(i + 1)] ?? 0
+        const c = lookup[clean.charCodeAt(i + 2)] ?? 0
+        const d = lookup[clean.charCodeAt(i + 3)] ?? 0
+        u8[cur++] = (a << 2) | (b >> 4)
+        if (cur < bytesLen) u8[cur++] = ((b & 15) << 4) | (c >> 2)
+        if (cur < bytesLen) u8[cur++] = ((c & 3) << 6) | (d & 63)
+    }
+    return u8
+}
+
+function tryExtractBytes(input: any): Uint8Array | null {
+    if (!input) return null
+
+    // 1. Direct Uint8Array / TypedArray / ArrayBuffer
+    if (input instanceof Uint8Array) return input
+    if (ArrayBuffer.isView(input)) {
+        return new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
+    }
+    if (input instanceof ArrayBuffer) {
+        return new Uint8Array(input)
+    }
+    if (Array.isArray(input)) {
+        return new Uint8Array(input)
+    }
+
+    // 2. Official Paperback App.createByteArray bridge (if available)
+    if (typeof (App as any)?.createByteArray === 'function') {
+        try {
+            const arr = (App as any).createByteArray(input)
+            if (arr && arr.length > 0) return arr instanceof Uint8Array ? arr : new Uint8Array(arr)
+        } catch {}
+    }
+
+    // 3. Nested buffer/data/byteArray
+    if (input.buffer instanceof ArrayBuffer) {
+        return new Uint8Array(input.buffer, input.byteOffset ?? 0, input.byteLength ?? input.length ?? 0)
+    }
+    if (input.byteArray instanceof Uint8Array) return input.byteArray
+    if (input.data instanceof Uint8Array) return input.data
+
+    // 4. If input has indexed numeric elements
+    const count = input.length ?? input.count
+    if (typeof count === 'number' && count > 0 && typeof input[0] === 'number') {
+        const u8 = new Uint8Array(count)
+        for (let i = 0; i < count; i++) {
+            u8[i] = (input[i] ?? 0) & 0xff
+        }
+        return u8
+    }
+
+    // 5. If input is a string or has toString()
+    let str: string | null = null
+    if (typeof input === 'string') {
+        str = input
+    } else if (typeof input.toString === 'function') {
+        try {
+            const s = input.toString()
+            if (typeof s === 'string' && s !== '[object Object]') {
+                str = s
+            }
+        } catch {}
+    }
+
+    if (str && str.length > 0) {
+        const trimmed = str.trim()
+        // Check if base64 encoded
+        if (/^[A-Za-z0-9+/=\r\n]+$/.test(trimmed) && trimmed.length % 4 === 0 && !trimmed.includes('\0')) {
             try {
-                const arr = (App as any).createByteArray(response.rawData)
-                if (arr && (arr.length > 0 || (response.rawData as any).length === 0)) {
-                    return arr instanceof Uint8Array ? arr : new Uint8Array(arr)
-                }
+                const decoded = decodeBase64(trimmed)
+                if (decoded.length > 0) return decoded
             } catch {}
         }
-        // 2. Direct Uint8Array check
-        if (response.rawData instanceof Uint8Array) {
-            return response.rawData
-        }
-        // 3. ArrayBuffer view check
-        if ((response.rawData as any)?.buffer instanceof ArrayBuffer) {
-            const raw = response.rawData as any
-            return new Uint8Array(raw.buffer, raw.byteOffset ?? 0, raw.byteLength ?? raw.length)
-        }
-        // 4. Indexed elements fallback
-        const raw = response.rawData
-        const len = raw.length
-        if (typeof len === 'number' && len > 0 && typeof (raw as any)[0] === 'number') {
-            const u8 = new Uint8Array(len)
-            for (let i = 0; i < len; i++) {
-                u8[i] = (raw[i] ?? 0) as number
-            }
-            return u8
-        }
-    }
-    // 5. String fallback (latin1 / binary character code)
-    if (typeof response.data === 'string' && response.data.length > 0) {
-        const str = response.data
-        const len = str.length
-        const u8 = new Uint8Array(len)
-        for (let i = 0; i < len; i++) {
+        // Direct character codes (latin1 / binary string)
+        const u8 = new Uint8Array(str.length)
+        for (let i = 0; i < str.length; i++) {
             u8[i] = str.charCodeAt(i) & 0xff
         }
         return u8
+    }
+
+    return null
+}
+
+function responseToUint8Array(response: Response): Uint8Array {
+    if (response.rawData) {
+        const fromRaw = tryExtractBytes(response.rawData)
+        if (fromRaw && fromRaw.length > 0) return fromRaw
+    }
+    if (response.data) {
+        const fromData = tryExtractBytes(response.data)
+        if (fromData && fromData.length > 0) return fromData
     }
     return new Uint8Array(0)
 }

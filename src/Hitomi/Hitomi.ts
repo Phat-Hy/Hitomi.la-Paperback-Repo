@@ -35,7 +35,7 @@ const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.4',
+    version: '1.2.5',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -345,21 +345,12 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             })
         }
 
-        // 2. Filter Tag search (selected from Paperback search filter menu)
-        if (query.includedTags && query.includedTags.length > 0) {
-            const tag = query.includedTags[0]
-            if (tag && tag.id) {
-                const path = `${tag.id}-all.atom`
-                const items = await this.fetchAtomSection(path, 25)
-                return App.createPagedResults({ results: items })
-            }
-        }
-
-        // 3. User typed search query (title, character, series, artist, or tag)
+        // 2. User typed search query (title, character, series, artist, or tag)
+        // Must take precedence over includedTags so user searches are never hijacked by active filters
         if (title) {
             const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 
-            // 3a. Explicit namespace prefix: artist:xxx, female:xxx, series:xxx, etc.
+            // 2a. Explicit namespace prefix: artist:xxx, female:xxx, series:xxx, etc.
             if (clean.includes(':')) {
                 const [prefix, ...rest] = clean.split(':')
                 const val = rest.join(':').trim()
@@ -393,7 +384,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 }
             }
 
-            // 3b. Hitomi Official TagIndex Suggestion Search (Fastest for series, tags, characters, and artists)
+            // 2b. Hitomi Official TagIndex Suggestion Search (Fastest for series, tags, characters, and artists)
             try {
                 const suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
 
@@ -413,16 +404,25 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 // If TagIndex request fails, continue to B-Tree title search
             }
 
-            // 3c. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
+            // 2c. Direct Title B-Tree Index Search (Matches exact doujinshi and manga titles like "Mother and No Other!!")
             try {
                 const titleIds = await searchGalleryTitlesHitomi(title, this.requestManager)
                 if (titleIds.length > 0) {
-                    const topIds = titleIds.slice(0, 25)
+                    const topIds = titleIds.slice(0, 30)
                     const items = await Promise.all(
                         topIds.map(id => this.buildPartialSourceManga(id))
                     )
                     const valid = items.filter((item): item is PartialSourceManga => item !== null)
                     if (valid.length > 0) {
+                        // Rank results so exact word matches in title appear first
+                        const queryWords = clean.split(/\s+/).filter(w => w.length > 1)
+                        valid.sort((a, b) => {
+                            const aTitle = a.title.toLowerCase()
+                            const bTitle = b.title.toLowerCase()
+                            const aMatches = queryWords.filter(w => aTitle.includes(w)).length
+                            const bMatches = queryWords.filter(w => bTitle.includes(w)).length
+                            return bMatches - aMatches
+                        })
                         return App.createPagedResults({ results: valid })
                     }
                 }
@@ -430,7 +430,7 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 // Continue to candidate fallback probe
             }
 
-            // 3d. Direct candidate probe across common Hitomi feeds
+            // 2d. Direct candidate probe across common Hitomi feeds
             const enc = encodeURIComponent(clean)
             const candidates = [
                 `series/${enc}-all.atom`,
@@ -457,6 +457,16 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             return App.createPagedResults({
                 results: []
             })
+        }
+
+        // 3. Filter Tag search (when user browses by tag without typing a search query)
+        if (query.includedTags && query.includedTags.length > 0) {
+            const tag = query.includedTags[0]
+            if (tag && tag.id) {
+                const path = `${tag.id}-all.atom`
+                const items = await this.fetchAtomSection(path, 25)
+                return App.createPagedResults({ results: items })
+            }
         }
 
         // 4. Empty search query (user pressed enter with no text): show recent
