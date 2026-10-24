@@ -1,0 +1,3 @@
+# Set default behaviour to automatically normalize CRLF and LF.
+* text=auto
+*.png binary

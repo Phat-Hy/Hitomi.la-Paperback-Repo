@@ -1,0 +1,21 @@
+# compiled files
+node_modules
+dist
+bundles
+tmp
+lib
+
+# compiled sources
+reference
+
+.prettierrc
+.nyc_output
+coverage
+docs
+
+.idea
+.vscode
+
+# mac / windows
+.DS_Store
+Thumbs.db
