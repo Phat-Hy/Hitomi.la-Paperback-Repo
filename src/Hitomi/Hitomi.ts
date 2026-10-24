@@ -22,26 +22,24 @@ import {
     Tag,
     TagSection
 } from '@paperback/types'
-import { searchGalleryIdsByTerm } from './HitomiBTree'
 import { HitomiGallery } from './HitomiModels'
 import {
     ImageUriResolver,
     parseGalleryJson,
     parseGalleryToChapterDetails,
-    parseGalleryToSourceManga,
-    responseToArrayBuffer
+    parseGalleryToSourceManga
 } from './HitomiParser'
 
 const HITOMI_DOMAIN = 'https://hitomi.la'
 const LTN_DOMAIN = 'https://ltn.gold-usergeneratedcontent.net'
 
 export const HitomiInfo: SourceInfo = {
-    version: '1.2.0',
+    version: '1.2.1',
     name: 'Hitomi',
     icon: 'icon.png',
     author: 'Phat-Hy',
     authorWebsite: 'https://github.com/Phat-Hy',
-    description: 'Full-featured extension for hitomi.la with B-Tree title search and multi-section homepage',
+    description: 'High performance extension for hitomi.la with TagIndex search and instant multi-section homepage',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: HITOMI_DOMAIN,
     sourceTags: [
@@ -50,13 +48,28 @@ export const HitomiInfo: SourceInfo = {
             type: BadgeColor.RED
         }
     ],
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS
+}
+
+interface TagIndexSuggestion {
+    name: string;
+    count: number;
+    namespace: string;
+}
+
+function encodeSearchQueryForUrl(s: string): string {
+    return s.replace(/[ \/\.]/g, m => {
+        if (m === ' ') return '_'
+        if (m === '/') return 'slash'
+        if (m === '.') return 'dot'
+        return m
+    })
 }
 
 export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterProviding, HomePageSectionsProviding {
     requestManager = App.createRequestManager({
-        requestsPerSecond: 6,
-        requestTimeout: 20000,
+        requestsPerSecond: 15,
+        requestTimeout: 15000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {
                 request.headers = {
@@ -91,20 +104,6 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         }
     }
 
-    private fetchBinary = async (url: string, headers?: Record<string, string>): Promise<ArrayBuffer> => {
-        const request = App.createRequest({
-            url,
-            method: 'GET',
-            headers: {
-                ...(headers || {}),
-                referer: `${HITOMI_DOMAIN}/`,
-                'user-agent': await this.requestManager.getDefaultUserAgent()
-            }
-        })
-        const response = await this.requestManager.schedule(request, 1)
-        return responseToArrayBuffer(response)
-    }
-
     private async fetchGallery(id: string): Promise<HitomiGallery> {
         const cached = this.galleryCache.get(id)
         if (cached) return cached
@@ -114,7 +113,6 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        this.checkCloudflareError(response.status)
 
         const raw = response.data || ''
         const gallery = parseGalleryJson(raw, id)
@@ -146,12 +144,12 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
     }
 
     private async fetchAtomSection(path: string, limit: number): Promise<PartialSourceManga[]> {
+        const cleanPath = path.replace(/^\/+/, '')
         const request = App.createRequest({
-            url: `${HITOMI_DOMAIN}/${path}`,
+            url: `${LTN_DOMAIN}/${cleanPath}`,
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        this.checkCloudflareError(response.status)
 
         const xml = response.data || ''
         const regex = /<entry>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<id>[\s\S]*?-(\d+)\.html<\/id>[\s\S]*?<\/entry>/g
@@ -169,6 +167,48 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
         )
 
         return items.filter((item): item is PartialSourceManga => item !== null)
+    }
+
+    private async fetchTagIndexSuggestions(term: string, field = 'global'): Promise<TagIndexSuggestion[]> {
+        const clean = term.toLowerCase().trim()
+        if (!clean) return []
+
+        const chars = clean.split('').map(encodeSearchQueryForUrl)
+        const url = `https://tagindex.hitomi.la/${field}/${chars.join('/')}.json`
+
+        try {
+            const request = App.createRequest({
+                url,
+                method: 'GET'
+            })
+            const response = await this.requestManager.schedule(request, 1)
+            if (response.status !== 200 || !response.data) return []
+
+            const raw = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+            if (!Array.isArray(raw)) return []
+
+            return raw.map((item: any) => ({
+                name: String(item[0]),
+                count: Number(item[1]),
+                namespace: String(item[2])
+            }))
+        } catch {
+            return []
+        }
+    }
+
+    private suggestionToAtomPath(s: TagIndexSuggestion): string {
+        const encoded = encodeURIComponent(s.name.replace(/[\/#]/g, ''))
+        if (s.namespace === 'female' || s.namespace === 'male') {
+            return `tag/${s.namespace}:${encoded}-all.atom`
+        }
+        if (s.namespace === 'language') {
+            return `index-${encoded}.atom`
+        }
+        if (s.namespace === 'tag') {
+            return `tag/${encoded}-all.atom`
+        }
+        return `${s.namespace}/${encoded}-all.atom`
     }
 
     getMangaShareUrl(mangaId: string): string {
@@ -203,70 +243,54 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
         await this.ensureGG()
 
-        const sections = [
-            App.createHomeSection({
+        const sectionDefs = [
+            {
                 id: 'recently_added',
                 title: 'Recently Added',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
+                feedPath: 'index-all.atom',
+                limit: 10
+            },
+            {
                 id: 'english',
                 title: 'English Releases',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'japanese',
-                title: 'Japanese Releases',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
+                feedPath: 'index-english.atom',
+                limit: 8
+            },
+            {
+                id: 'manga',
+                title: 'Popular Manga',
+                feedPath: 'type/manga-all.atom',
+                limit: 8
+            },
+            {
                 id: 'doujinshi',
                 title: 'Doujinshi',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'manga',
-                title: 'Manga',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'artistcg',
-                title: 'Artist CG',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'gamecg',
-                title: 'Game CG',
+                feedPath: 'type/doujinshi-all.atom',
+                limit: 8
+            },
+            {
+                id: 'japanese',
+                title: 'Japanese Releases',
+                feedPath: 'index-japanese.atom',
+                limit: 8
+            }
+        ]
+
+        for (const def of sectionDefs) {
+            const section = App.createHomeSection({
+                id: def.id,
+                title: def.title,
                 type: HomeSectionType.singleRowNormal,
                 containsMoreItems: true
             })
-        ]
 
-        const feedMap: [number, string][] = [
-            [0, 'index-all.atom'],
-            [1, 'index-english.atom'],
-            [2, 'index-japanese.atom'],
-            [3, 'type/doujinshi-all.atom'],
-            [4, 'type/manga-all.atom'],
-            [5, 'type/artistcg-all.atom'],
-            [6, 'type/gamecg-all.atom']
-        ]
-
-        for (const [idx, path] of feedMap) {
             try {
-                const items = await this.fetchAtomSection(path, 16)
-                if (items.length > 0) {
-                    sections[idx]!.items = items
-                    sectionCallback(sections[idx]!)
-                }
+                const items = await this.fetchAtomSection(def.feedPath, def.limit)
+                section.items = items
+                sectionCallback(section)
             } catch {
-                // Continue emitting available sections
+                section.items = []
+                sectionCallback(section)
             }
         }
     }
@@ -330,13 +354,14 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             }
         }
 
-        // 3. User typed search query (e.g. title, character, or artist)
+        // 3. User typed search query (e.g. title, character, series, or artist)
         if (title) {
             const clean = title.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 
             // 3a. Explicit namespace prefix: artist:xxx, female:xxx, series:xxx, etc.
             if (clean.includes(':')) {
-                const [prefix, val] = clean.split(':').map(s => s.trim())
+                const [prefix, ...rest] = clean.split(':')
+                const val = rest.join(':').trim()
                 if (val) {
                     const enc = encodeURIComponent(val)
                     let directPath = ''
@@ -367,31 +392,43 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
                 }
             }
 
-            // 3b. Hitomi B-Tree Index Search (official galleries B-Tree index by title/term)
+            // 3b. Hitomi Official TagIndex Suggestion Search
             try {
-                const btreeIds = await searchGalleryIdsByTerm(clean, this.fetchBinary)
-                if (btreeIds.length > 0) {
-                    const topIds = btreeIds.slice(0, 24)
-                    const items = await Promise.all(
-                        topIds.map(id => this.buildPartialSourceManga(id))
-                    )
-                    const valid = items.filter((item): item is PartialSourceManga => item !== null)
-                    if (valid.length > 0) {
-                        return App.createPagedResults({ results: valid })
+                let suggestions = await this.fetchTagIndexSuggestions(clean, 'global')
+
+                // If multi-word search didn't yield exact phrase, try significant keyword
+                if (suggestions.length === 0 && clean.includes(' ')) {
+                    const words = clean.split(' ').filter(w => w.length > 2 && !['english', 'japanese', 'chinese'].includes(w))
+                    for (const word of words) {
+                        suggestions = await this.fetchTagIndexSuggestions(word, 'global')
+                        if (suggestions.length > 0) break
+                    }
+                }
+
+                if (suggestions.length > 0) {
+                    const topSuggestions = suggestions.slice(0, 2)
+                    for (const sug of topSuggestions) {
+                        const path = this.suggestionToAtomPath(sug)
+                        try {
+                            const items = await this.fetchAtomSection(path, 25)
+                            if (items.length > 0) {
+                                return App.createPagedResults({ results: items })
+                            }
+                        } catch {}
                     }
                 }
             } catch {
-                // If B-Tree lookup encountered a network issue, fall through to tag probe
+                // If TagIndex request fails, continue to candidate fallback probe
             }
 
-            // 3c. Smart probe across candidate Hitomi tag/artist/series feeds
+            // 3c. Direct candidate probe across common Hitomi feeds
             const enc = encodeURIComponent(clean)
             const candidates = [
-                `tag/female:${enc}-all.atom`,
-                `artist/${enc}-all.atom`,
-                `tag/${enc}-all.atom`,
                 `series/${enc}-all.atom`,
+                `artist/${enc}-all.atom`,
                 `character/${enc}-all.atom`,
+                `tag/female:${enc}-all.atom`,
+                `tag/${enc}-all.atom`,
                 `tag/male:${enc}-all.atom`,
                 `group/${enc}-all.atom`
             ]
@@ -472,22 +509,5 @@ export class Hitomi implements SearchResultsProviding, MangaProviding, ChapterPr
             App.createTagSection({ id: 'male', label: 'Male Tags', tags: maleTags }),
             App.createTagSection({ id: 'general', label: 'General Tags', tags: generalTags })
         ]
-    }
-
-    private checkCloudflareError(status: number): void {
-        if (status === 503 || status === 403) {
-            throw new Error(`CLOUDFLARE BYPASS ERROR:\nPlease open Hitomi.la in the Paperback in-app browser to pass Cloudflare.`)
-        }
-    }
-
-    async getCloudflareBypassRequestAsync(): Promise<Request> {
-        return App.createRequest({
-            url: HITOMI_DOMAIN,
-            method: 'GET',
-            headers: {
-                referer: `${HITOMI_DOMAIN}/`,
-                'user-agent': await this.requestManager.getDefaultUserAgent()
-            }
-        })
     }
 }
