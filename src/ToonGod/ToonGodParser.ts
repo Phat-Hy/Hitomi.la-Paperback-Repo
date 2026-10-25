@@ -130,7 +130,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
     const artist = artistMatch ? decode(artistMatch[1].replace(/<[^>]+>/g, '').trim()) : author
 
     // 4. Description
-    const descMatch = html.match(/class=["'][^"']*(?:description-summary|summary-container|manga-excerpt|post-content_item)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+    const descMatch = html.match(/class=["'][^"']*(?:description-summary|summary__content|summary-container|manga-excerpt)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
                       html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i)
     const desc = descMatch ? decode(descMatch[1].replace(/<[^>]+>/g, ' ').replace(/Show more/gi, '').trim()) : ''
 
@@ -171,10 +171,9 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 }
 
 export function parseChapters(html: string, mangaId: string): Chapter[] {
-    const chapters: Chapter[] = []
+    const rawChapters: { chapterSlug: string; name: string; parsedNum: number; validTime: Date }[] = []
     const chapterRegex = /<li[^>]+class="[^"]*wp-manga-chapter[^"]*"[^>]*>([\s\S]*?)<\/li>/gi
     let m: RegExpExecArray | null
-    let i = 0
 
     while ((m = chapterRegex.exec(html)) !== null) {
         const block = m[1]
@@ -187,21 +186,38 @@ export function parseChapters(html: string, mangaId: string): Chapter[] {
         if (!chapterSlug || chapterSlug === '#' || chapterSlug === mangaId) continue
 
         const name = decode(rawName)
-        const chapMatch = (chapterSlug + ' ' + name).match(/(?:chapter|ch[-_\s]*)(\d+(?:\.\d+)?)/i)
-        const chapNum = chapMatch && chapMatch[1] ? parseFloat(chapMatch[1]) : i
+        const chapMatch = (chapterSlug + ' ' + name).match(/(?:chapter|ch)[-_\s]*(\d+(?:\.\d+)?)/i)
+        const parsedNum = chapMatch && chapMatch[1] ? parseFloat(chapMatch[1]) : NaN
 
         const dateMatch = block.match(/<span class="chapter-release-date">[\s\S]*?(?:title=["']([^"']+)["']|<i>([\s\S]*?)<\/i>)/i)
         const dateStr = dateMatch ? (dateMatch[1] || dateMatch[2] || '') : ''
         const time = parseDate(dateStr)
+        const validTime = (time instanceof Date && !isNaN(time.getTime())) ? time : new Date()
+
+        rawChapters.push({
+            chapterSlug,
+            name,
+            parsedNum,
+            validTime
+        })
+    }
+
+    const total = rawChapters.length
+    const chapters: Chapter[] = []
+
+    for (let i = 0; i < total; i++) {
+        const item = rawChapters[i]!
+        const chapNum = !isNaN(item.parsedNum) ? item.parsedNum : (total - i)
+        const compositeId = `${mangaId}/${item.chapterSlug}`
 
         chapters.push(App.createChapter({
-            id: chapterSlug,
-            mangaId,
-            name: name || `Chapter ${chapNum}`,
+            id: compositeId,
+            name: item.name || `Chapter ${chapNum}`,
             chapNum,
-            time
+            time: item.validTime,
+            langCode: 'en',
+            sortingIndex: total - i
         }))
-        i++
     }
 
     return chapters

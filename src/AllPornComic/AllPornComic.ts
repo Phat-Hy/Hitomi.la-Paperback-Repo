@@ -57,7 +57,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.7',
+    version: '1.0.8',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -155,7 +155,8 @@ export class AllPornComic implements
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const url = `${APC_DOMAIN}/porncomic/${mangaId}/${chapterId}/?style=list`
+        const cleanChapterSlug = chapterId.includes('/') ? chapterId.split('/').pop()! : chapterId
+        const url = `${APC_DOMAIN}/porncomic/${mangaId}/${cleanChapterSlug}/?style=list`
         const request = App.createRequest({
             url,
             method: 'GET'

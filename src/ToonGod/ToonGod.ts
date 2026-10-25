@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.8',
+    version: '1.0.9',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -156,7 +156,8 @@ export class ToonGod implements
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const listUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${chapterId}/?style=list`
+        const cleanChapterSlug = chapterId.includes('/') ? chapterId.split('/').pop()! : chapterId
+        const listUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${cleanChapterSlug}/?style=list`
         const request = App.createRequest({
             url: listUrl,
             method: 'GET'
