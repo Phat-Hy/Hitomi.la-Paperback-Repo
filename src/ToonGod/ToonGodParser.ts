@@ -168,7 +168,8 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
             artist,
             author,
             desc,
-            tags: tagSections
+            tags: tagSections,
+            hentai: false
         })
     })
 }
