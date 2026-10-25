@@ -60,10 +60,15 @@ export function parseDate(dateStr: string): Date {
 }
 
 export function parseMangaDetails(html: string, mangaId: string): SourceManga {
-    const titleMatch = html.match(/<div class="post-title">\s*<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
-                       html.match(/<div id="manga-title">\s*<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
-                       html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
-    const title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : 'Untitled'
+    // 1. Title
+    const titleMatch = html.match(/class=["'][^"']*post-title[^"']*["'][^>]*>[\s\S]*?<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i) ||
+                       html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i) ||
+                       html.match(/<title>([\s\S]*?)(?:-\s*AllPornComic|<\/title>)/i)
+    let title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
+    if (!title || title.toLowerCase() === 'untitled') {
+        title = mangaId.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')
+    }
 
     const titles: string[] = [title]
     const altMatch = html.match(/(?:Alternative|Alt Name\(s\))<\/h5>[\s\S]*?<div class="summary-content">([\s\S]*?)<\/div>/i)
@@ -77,9 +82,10 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         }
     }
 
-    const summaryImgMatch = html.match(/<div class="[^"]*summary_image[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                           html.match(/class="[^"]*tab-summary[^"]*"[\s\S]*?<img\s+[^>]*>/i)
+    // 2. Cover Image
     let image = ''
+    const summaryImgMatch = html.match(/class=["'][^"']*summary_image[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                           html.match(/class=["'][^"']*tab-summary[^"']*["'][\s\S]*?<img\s+[^>]*>/i)
     if (summaryImgMatch) {
         const imgTag = summaryImgMatch[0].match(/<img\s+[^>]*>/i)
         if (imgTag) {
@@ -87,29 +93,35 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         }
     }
     if (!image) {
-        const fallbackImg = html.match(/<img[^>]+class="[^"]*(?:wp-post-image|img-responsive)[^"]*"[^>]*>/i)
-        if (fallbackImg) {
-            image = extractImageSrc(fallbackImg[0])
+        const ogImgMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i)
+        if (ogImgMatch && ogImgMatch[1]) {
+            image = ogImgMatch[1].trim()
+        }
+    }
+    if (!image) {
+        const wpImg = html.match(/<img[^>]+class=["'][^"']*(?:wp-post-image|img-responsive)[^"']*["'][^>]*>/i)
+        if (wpImg) {
+            image = extractImageSrc(wpImg[0])
         }
     }
 
-    const authorMatch = html.match(/<div class="author-content">([\s\S]*?)<\/div>/i)
+    // 3. Author & Artist
+    const authorMatch = html.match(/class=["'][^"']*author-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
     const author = authorMatch ? decode(authorMatch[1].replace(/<[^>]+>/g, '').trim()) : 'Unknown'
 
-    const artistMatch = html.match(/<div class="artist-content">([\s\S]*?)<\/div>/i)
+    const artistMatch = html.match(/class=["'][^"']*artist-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
     const artist = artistMatch ? decode(artistMatch[1].replace(/<[^>]+>/g, '').trim()) : author
 
-    const descMatch = html.match(/<div class="(?:description-summary|summary-container|manga-excerpt)">([\s\S]*?)<\/div>/i)
+    // 4. Description
+    const descMatch = html.match(/class=["'][^"']*(?:description-summary|summary-container|manga-excerpt|post-content_item)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                      html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i)
     const desc = descMatch ? decode(descMatch[1].replace(/<[^>]+>/g, ' ').replace(/Show more/gi, '').trim()) : ''
-
-    const ratingMatch = html.match(/id="averagerate"[^>]*>([\s\S]*?)<\/span>/i) ||
-                        html.match(/<span class="score"[^>]*>([\s\S]*?)<\/span>/i)
-    const rating = ratingMatch ? parseFloat(ratingMatch[1].replace(/<[^>]+>/g, '').trim()) || 0 : 0
 
     const status = /Completed/i.test(html) ? 'Completed' : 'Ongoing'
 
+    // 5. Genres
     const genres: Tag[] = []
-    const genresBoxMatch = html.match(/<div class="genres-content">([\s\S]*?)<\/div>/i)
+    const genresBoxMatch = html.match(/class=["'][^"']*genres-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
     if (genresBoxMatch) {
         const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
         let lm: RegExpExecArray | null
@@ -132,13 +144,11 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         mangaInfo: App.createMangaInfo({
             titles,
             image,
-            rating,
             status,
             artist,
             author,
             desc,
-            tags: tagSections,
-            hentai: false
+            tags: tagSections
         })
     })
 }
