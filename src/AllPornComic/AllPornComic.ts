@@ -57,7 +57,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.3',
+    version: '1.0.4',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -246,21 +246,23 @@ export class AllPornComic implements
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
         const pageParam = page > 1 ? `/page/${page}/` : '/'
-        let taxPath: string | undefined
-        let searchKeywords = ''
+        
+        let taxPath: string | undefined = metadata?.taxPath
+        let searchKeywords: string = metadata?.searchKeywords ?? ''
 
-        // 1. Tag selection from Paperback filter sheet
-        if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
-            taxPath = query.includedTags[0].id
-        }
-
-        // 2. Query title with smart prefix support (tag:, artist:, etc.)
-        if (query.title && query.title.trim().length > 0) {
-            const parsed = parseSearchPrefix(query.title)
-            if (parsed.taxPath && !taxPath) {
-                taxPath = parsed.taxPath
+        // On page 1 (or if metadata did not carry state), initialize from query
+        if (typeof metadata?.taxPath === 'undefined' && typeof metadata?.searchKeywords === 'undefined') {
+            if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
+                taxPath = query.includedTags[0].id
             }
-            searchKeywords = parsed.searchKeywords
+
+            if (query.title && query.title.trim().length > 0) {
+                const parsed = parseSearchPrefix(query.title)
+                if (parsed.taxPath && !taxPath) {
+                    taxPath = parsed.taxPath
+                }
+                searchKeywords = parsed.searchKeywords
+            }
         }
 
         let url: string
@@ -283,8 +285,17 @@ export class AllPornComic implements
             if (response.status === 404) {
                 return App.createPagedResults({ results: [] })
             }
-            const items = parseMangaItems(response.data || '')
-            const nextMetadata = items.length >= 10 ? { page: page + 1 } : undefined
+            const html = response.data || ''
+            const items = parseMangaItems(html)
+
+            const nextPageNum = page + 1
+            const hasNext = items.length > 0 && (
+                html.includes('nextpostslink') ||
+                html.includes(`/page/${nextPageNum}/`) ||
+                items.length >= 18
+            )
+
+            const nextMetadata = hasNext ? { page: nextPageNum, taxPath, searchKeywords } : undefined
 
             return App.createPagedResults({
                 results: items,
