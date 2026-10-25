@@ -1,11 +1,26 @@
 # Paperback v0.8 Sources Repository
 
-Official Paperback v0.8 source repository providing extensions for [Hitomi.la](https://hitomi.la) and [AllPornComic.com](https://allporncomic.com).
+Official Paperback v0.8 source repository providing extensions for [Hitomi.la](https://hitomi.la), [AllPornComic.com](https://allporncomic.com), and [ToonGod.org](https://www.toongod.org).
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
 [![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.4-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.0.0-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
+
+### 3. 👑 ToonGod (`toongod.org`)
+Full-featured extension for ToonGod adult manhwa, webtoons, and manga:
+- **Homepage Sections**:
+  - 🔄 **Latest Updates**
+  - 🔥 **Most Popular**
+  - ⭐ **Top Rated**
+  - 🆕 **New Releases**
+- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to solve Cloudflare Turnstile directly within Paperback.
+- **Search & Filter**:
+  - Search by keywords or filter by 35+ genres (Romance, Drama, Fantasy, Smut, Mature, Harem, etc.).
+  - Continuous multi-page infinite scroll pagination.
+  - Smart prefix search (`genre:romance`, `tag:smut`).
+- **High-Res Reader**: Vertical webtoon reader layout with zero-dependency JSC parsing.
 
 ---
 
@@ -25,6 +40,7 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
 5. Tap **Add** and install either or both extensions from the catalog:
    - **Hitomi** (v1.2.11)
    - **AllPornComic** (v1.0.4)
+   - **ToonGod** (v1.0.0)
 
 ---
 
