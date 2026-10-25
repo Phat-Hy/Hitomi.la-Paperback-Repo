@@ -26,7 +26,6 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
-    CloudflareBypassRequestProviding,
     ContentRating,
     HomePageSectionsProviding,
     HomeSection,
@@ -57,7 +56,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.9',
+    version: '1.1.0',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -70,10 +69,6 @@ export const ToonGodInfo: SourceInfo = {
         {
             text: '18+',
             type: BadgeColor.RED
-        },
-        {
-            text: 'Cloudflare',
-            type: BadgeColor.GREY
         }
     ]
 }
@@ -82,8 +77,7 @@ export class ToonGod implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding,
-    CloudflareBypassRequestProviding {
+    HomePageSectionsProviding {
 
     requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -97,23 +91,10 @@ export class ToonGod implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
-                if (response.status === 403 || response.status === 503 || (response.data && (response.data.includes('cf-mitigated') || response.data.includes('Just a moment...')))) {
-                    throw new Error('Cloudflare challenge detected! Please bypass Cloudflare in ToonGod settings.')
-                }
                 return response
             }
         }
     })
-
-    async getCloudflareBypassRequestAsync(): Promise<Request> {
-        return App.createRequest({
-            url: `${TOONGOD_DOMAIN}/webtoons/`,
-            method: 'GET',
-            headers: {
-                Referer: `${TOONGOD_DOMAIN}/`
-            }
-        })
-    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${TOONGOD_DOMAIN}/webtoon/${mangaId}/`

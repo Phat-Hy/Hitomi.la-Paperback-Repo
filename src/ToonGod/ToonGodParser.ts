@@ -208,15 +208,13 @@ export function parseChapters(html: string, mangaId: string): Chapter[] {
     for (let i = 0; i < total; i++) {
         const item = rawChapters[i]!
         const chapNum = !isNaN(item.parsedNum) ? item.parsedNum : (total - i)
-        const compositeId = `${mangaId}/${item.chapterSlug}`
 
         chapters.push(App.createChapter({
-            id: compositeId,
+            id: item.chapterSlug,
+            mangaId: mangaId,
             name: item.name || `Chapter ${chapNum}`,
             chapNum,
-            time: item.validTime,
-            langCode: 'en',
-            sortingIndex: total - i
+            time: item.validTime
         }))
     }
 

@@ -26,7 +26,6 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
-    CloudflareBypassRequestProviding,
     ContentRating,
     HomePageSectionsProviding,
     HomeSection,
@@ -57,7 +56,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.8',
+    version: '1.0.9',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -70,10 +69,6 @@ export const AllPornComicInfo: SourceInfo = {
         {
             text: '18+',
             type: BadgeColor.RED
-        },
-        {
-            text: 'Cloudflare',
-            type: BadgeColor.GREY
         }
     ]
 }
@@ -82,8 +77,7 @@ export class AllPornComic implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding,
-    CloudflareBypassRequestProviding {
+    HomePageSectionsProviding {
 
     requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -103,16 +97,6 @@ export class AllPornComic implements
             }
         }
     })
-
-    async getCloudflareBypassRequestAsync(): Promise<Request> {
-        return App.createRequest({
-            url: `${APC_DOMAIN}/`,
-            method: 'GET',
-            headers: {
-                referer: `${APC_DOMAIN}/`
-            }
-        })
-    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${APC_DOMAIN}/porncomic/${mangaId}/`
