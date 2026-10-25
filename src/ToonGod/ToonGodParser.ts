@@ -14,9 +14,23 @@ const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export function extractImageSrc(tagStr: string): string {
     if (!tagStr) return ''
-    const match = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc|srcset|src)=["']([^"'s]+)["']/i)
-    if (!match || !match[1]) return ''
-    let src = match[1].trim().replace(/-\d+x\d+(\.\w+)$/, '$1')
+    const dataMatch = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc)=["']([^"'s]+)["']/i)
+    let src = ''
+    if (dataMatch && dataMatch[1]) {
+        src = dataMatch[1]
+    } else {
+        const srcsetMatch = tagStr.match(/(?:data-srcset|srcset)=["']([^"'s]+)/i)
+        if (srcsetMatch && srcsetMatch[1]) {
+            src = srcsetMatch[1]
+        } else {
+            const srcMatch = tagStr.match(/src=["']([^"'s]+)["']/i)
+            if (srcMatch && srcMatch[1] && !srcMatch[1].includes('dflazy') && !srcMatch[1].includes('placeholder')) {
+                src = srcMatch[1]
+            }
+        }
+    }
+    if (!src) return ''
+    src = src.trim().replace(/-\d+x\d+(\.\w+)$/, '$1')
     if (src.startsWith('//')) src = 'https:' + src
     else if (src.startsWith('/')) src = TOONGOD_DOMAIN + src
     return src.replace(/^http:\/\//, 'https://')
@@ -194,7 +208,7 @@ export function parseChapterDetails(html: string, mangaId: string, chapterId: st
 export function parseMangaItems(html: string): PartialSourceManga[] {
     const items: PartialSourceManga[] = []
     const seen = new Set<string>()
-    const blocks = html.split(/<div\s+class="[^"]*(?:c-tabs-item__content|page-item-detail|manga-item|badge-pos-1|item-summary|popular-item|slider__item|page-listing-item)[^"]*"/i).slice(1)
+    const blocks = html.split(/<div\s+class="[^"]*(?:c-tabs-item__content|page-item-detail|badge-pos-1|popular-item|slider__item|page-listing-item)[^"]*"/i).slice(1)
 
     for (const block of blocks) {
         const linkMatch = block.match(/href=["'](https?:\/\/[^"']*\/(?:webtoon|manga|webtoons)\/[^"'\/]+\/?)["']/i) ||
@@ -219,9 +233,7 @@ export function parseMangaItems(html: string): PartialSourceManga[] {
         const imgMatch = block.match(/<img\s+[^>]*>/i)
         const image = imgMatch ? extractImageSrc(imgMatch[0]) : ''
 
-        const chMatch = block.match(/class="font-meta\s+chapter"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
-                        block.match(/class="chapter-item"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
-                        block.match(/class="chapter"[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)
+        const chMatch = block.match(/class="[^"]*chapter[^"]*"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)
         const subtitle = chMatch ? decode(chMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
 
         items.push(App.createPartialSourceManga({
