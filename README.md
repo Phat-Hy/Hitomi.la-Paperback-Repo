@@ -4,7 +4,7 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
 [![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
-[![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.0-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.1-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
 
 ---

@@ -8,35 +8,22 @@ import {
     Tag,
     TagSection
 } from '@paperback/types'
-import * as cheerio from 'cheerio'
 import { decode } from 'html-entities'
 
-export function extractImageSrc(imageElement: any): string {
-    if (!imageElement) return ''
-    let src = imageElement.attr('data-src') ||
-              imageElement.attr('data-lazy-src') ||
-              imageElement.attr('srcset')?.split(' ')[0] ||
-              imageElement.attr('src') ||
-              imageElement.attr('data-cfsrc') ||
-              ''
-    src = src.trim().replace(/(\s{2,})/gi, '')
-    // Remove resizing suffixes (e.g. -193x278.jpg -> .jpg)
-    src = src.replace(/-\d+x\d+(\.\w+)$/, '$1')
-
-    if (src.startsWith('//')) {
-        src = 'https:' + src
-    } else if (src.startsWith('/')) {
-        src = 'https://allporncomic.com' + src
-    }
-    src = src.replace(/^http:\/\//, 'https://')
-    return src
+export function extractImageSrc(tagStr: string): string {
+    if (!tagStr) return ''
+    const match = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc|src)=["']([^"']+)["']/i)
+    if (!match || !match[1]) return ''
+    let src = match[1].trim().replace(/-\d+x\d+(\.\w+)$/, '$1')
+    if (src.startsWith('//')) src = 'https:' + src
+    else if (src.startsWith('/')) src = 'https://allporncomic.com' + src
+    return src.replace(/^http:\/\//, 'https://')
 }
 
 export function extractSlug(href: string): string {
     if (!href) return ''
     const clean = href.replace(/\/$/, '')
-    const parts = clean.split('/')
-    return parts.pop() || ''
+    return clean.split('/').pop() || ''
 }
 
 export function parseDate(dateStr: string): Date {
@@ -72,15 +59,16 @@ export function parseDate(dateStr: string): Date {
     return isNaN(parsed.getTime()) ? new Date() : parsed
 }
 
-export function parseMangaDetails($: cheerio.CheerioAPI, mangaId: string): SourceManga {
-    const rawTitle = $('div.post-title h1, div#manga-title h1').first().clone().children().remove().end().text().trim() ||
-                     $('div.post-title h1, div#manga-title h1').first().text().trim() ||
-                     'Untitled'
-    const title = decode(rawTitle)
+export function parseMangaDetails(html: string, mangaId: string): SourceManga {
+    const titleMatch = html.match(/<div class="post-title">\s*<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<div id="manga-title">\s*<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+                       html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
+    const title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : 'Untitled'
 
     const titles: string[] = [title]
-    const altText = $('div.summary-content:contains(Alternative), h5:contains(Alternative) + div, h5:contains(Alt Name) + div').text().trim()
-    if (altText) {
+    const altMatch = html.match(/(?:Alternative|Alt Name\(s\))<\/h5>[\s\S]*?<div class="summary-content">([\s\S]*?)<\/div>/i)
+    if (altMatch && altMatch[1]) {
+        const altText = altMatch[1].replace(/<[^>]+>/g, '').trim()
         for (const alt of altText.split(/\s*[/,;]\s*/)) {
             const cleanAlt = decode(alt.trim())
             if (cleanAlt && !titles.includes(cleanAlt)) {
@@ -89,27 +77,37 @@ export function parseMangaDetails($: cheerio.CheerioAPI, mangaId: string): Sourc
         }
     }
 
-    const author = decode($('div.author-content a, div.author-content').first().text().replace(/\n/g, '').trim()) || 'Unknown'
-    const artist = decode($('div.artist-content a, div.artist-content').first().text().replace(/\n/g, '').trim()) || author || 'Unknown'
-    const desc = decode($('div.description-summary, div.summary-container, div.manga-excerpt').first().text().replace(/Show more/i, '').trim())
+    const summaryImgMatch = html.match(/<div class="summary_image">([\s\S]*?)<\/div>/i)
+    const image = summaryImgMatch ? extractImageSrc(summaryImgMatch[1]) : ''
 
-    const ratingText = $('#averagerate').text().trim()
-    const rating = parseFloat(ratingText) || 0
+    const authorMatch = html.match(/<div class="author-content">([\s\S]*?)<\/div>/i)
+    const author = authorMatch ? decode(authorMatch[1].replace(/<[^>]+>/g, '').trim()) : 'Unknown'
 
-    const image = extractImageSrc($('div.summary_image img').first())
+    const artistMatch = html.match(/<div class="artist-content">([\s\S]*?)<\/div>/i)
+    const artist = artistMatch ? decode(artistMatch[1].replace(/<[^>]+>/g, '').trim()) : author
 
-    const parsedStatus = $('div.summary-content', $('div.post-content_item').last()).text().trim().toUpperCase()
-    const status = parsedStatus.includes('COMPLETED') ? 'Completed' : 'Ongoing'
+    const descMatch = html.match(/<div class="(?:description-summary|summary-container|manga-excerpt)">([\s\S]*?)<\/div>/i)
+    const desc = descMatch ? decode(descMatch[1].replace(/<[^>]+>/g, ' ').replace(/Show more/gi, '').trim()) : ''
+
+    const ratingMatch = html.match(/id="averagerate"[^>]*>([\s\S]*?)<\/span>/i) ||
+                        html.match(/<span class="score"[^>]*>([\s\S]*?)<\/span>/i)
+    const rating = ratingMatch ? parseFloat(ratingMatch[1].replace(/<[^>]+>/g, '').trim()) || 0 : 0
+
+    const status = /Completed/i.test(html) ? 'Completed' : 'Ongoing'
 
     const genres: Tag[] = []
-    $('div.genres-content a, .genres-content a').each((_, el) => {
-        const name = $(el).text().trim()
-        const href = $(el).attr('href') || ''
-        const id = extractSlug(href)
-        if (name && id) {
-            genres.push(App.createTag({ id, label: decode(name) }))
+    const genresBoxMatch = html.match(/<div class="genres-content">([\s\S]*?)<\/div>/i)
+    if (genresBoxMatch) {
+        const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+        let lm: RegExpExecArray | null
+        while ((lm = linkRegex.exec(genresBoxMatch[1])) !== null) {
+            const id = extractSlug(lm[1])
+            const label = decode(lm[2].replace(/<[^>]+>/g, '').trim())
+            if (id && label) {
+                genres.push(App.createTag({ id, label }))
+            }
         }
-    })
+    }
 
     const tagSections: TagSection[] = []
     if (genres.length > 0) {
@@ -132,48 +130,57 @@ export function parseMangaDetails($: cheerio.CheerioAPI, mangaId: string): Sourc
     })
 }
 
-export function parseChapters($: cheerio.CheerioAPI, mangaId: string): Chapter[] {
+export function parseChapters(html: string, mangaId: string): Chapter[] {
     const chapters: Chapter[] = []
-    const rows = $('li.wp-manga-chapter').toArray()
+    const chapterRegex = /<li[^>]+class="[^"]*wp-manga-chapter[^"]*"[^>]*>([\s\S]*?)<\/li>/gi
+    let m: RegExpExecArray | null
+    let i = 0
 
-    for (let i = 0; i < rows.length; i++) {
-        const row = rows[i]
-        const link = $('a', row).first()
-        const href = link.attr('href') || ''
+    while ((m = chapterRegex.exec(html)) !== null) {
+        const block = m[1]
+        const linkMatch = block.match(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
+        if (!linkMatch) continue
+
+        const href = linkMatch[1]
+        const rawName = linkMatch[2].replace(/<[^>]+>/g, '').trim()
         const chapterSlug = extractSlug(href)
         if (!chapterSlug || chapterSlug === '#' || chapterSlug === mangaId) continue
 
-        const rawName = link.text().trim()
-        const chapName = decode(rawName)
+        const name = decode(rawName)
+        const chapMatch = (chapterSlug + ' ' + name).match(/(?:chapter|ch[-_\s]*)(\d+(?:\.\d+)?)/i)
+        const chapNum = chapMatch && chapMatch[1] ? parseFloat(chapMatch[1]) : i
 
-        const chapMatch = (chapterSlug + ' ' + chapName).match(/(?:chapter|ch[-_\s]*)(\d+(?:\.\d+)?)/i)
-        const chapNum = chapMatch && chapMatch[1] ? parseFloat(chapMatch[1]) : (rows.length - i)
-
-        const dateStr = $('span.chapter-release-date a', row).attr('title') ||
-                        $('span.chapter-release-date i', row).text().trim()
+        const dateMatch = block.match(/<span class="chapter-release-date">[\s\S]*?(?:title=["']([^"']+)["']|<i>([\s\S]*?)<\/i>)/i)
+        const dateStr = dateMatch ? (dateMatch[1] || dateMatch[2] || '') : ''
         const time = parseDate(dateStr)
 
         chapters.push(App.createChapter({
             id: chapterSlug,
             mangaId,
-            name: chapName || `Chapter ${chapNum}`,
+            name: name || `Chapter ${chapNum}`,
             chapNum,
             time
         }))
+        i++
     }
 
     return chapters
 }
 
-export function parseChapterDetails($: cheerio.CheerioAPI, mangaId: string, chapterId: string): ChapterDetails {
+export function parseChapterDetails(html: string, mangaId: string, chapterId: string): ChapterDetails {
     const pages: string[] = []
+    const readingAreaMatch = html.match(/<div class="(?:reading-content|page-break|wp-manga-chapter-img)"[^>]*>([\s\S]*?)<div class="(?:nav-links|c-selectpicker_header)/i) ||
+                             html.match(/<div class="reading-content"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i)
+    const searchHtml = readingAreaMatch ? readingAreaMatch[1] : html
 
-    $('div.page-break img, div.reading-content img, div.wp-manga-chapter-img img').each((_, el) => {
-        const src = extractImageSrc($(el))
-        if (src && !pages.includes(src)) {
+    const imgRegex = /<img[^>]+(?:data-src|data-lazy-src|data-cfsrc|src)=["']([^"']+)["'][^>]*>/gi
+    let m: RegExpExecArray | null
+    while ((m = imgRegex.exec(searchHtml)) !== null) {
+        const src = extractImageSrc(m[0])
+        if (src && !pages.includes(src) && !src.includes('logo') && !src.includes('banner')) {
             pages.push(encodeURI(src))
         }
-    })
+    }
 
     return App.createChapterDetails({
         id: chapterId,
@@ -182,24 +189,30 @@ export function parseChapterDetails($: cheerio.CheerioAPI, mangaId: string, chap
     })
 }
 
-export function parseMangaItems($: cheerio.CheerioAPI): PartialSourceManga[] {
+export function parseMangaItems(html: string): PartialSourceManga[] {
     const items: PartialSourceManga[] = []
     const seen = new Set<string>()
+    const itemRegex = /<div class="(?:c-tabs-item__content|page-item-detail)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi
+    let m: RegExpExecArray | null
 
-    $('div.c-tabs-item__content, div.page-item-detail, div.row.c-tabs-item__content').each((_, el) => {
-        const titleLink = $('h3.h5 a, .post-title a', el).first()
-        const href = titleLink.attr('href') || $('div.item-thumb a, div.tab-thumb a', el).first().attr('href') || ''
-        const slug = extractSlug(href)
-        if (!slug || seen.has(slug)) return
+    while ((m = itemRegex.exec(html)) !== null) {
+        const block = m[1]
+        const linkMatch = block.match(/<a[^>]+href=["']([^"']*\/porncomic\/[^"']+)["']/i) ||
+                          block.match(/<a[^>]+href=["']([^"']+)["']/i)
+        if (!linkMatch) continue
+
+        const slug = extractSlug(linkMatch[1])
+        if (!slug || seen.has(slug)) continue
         seen.add(slug)
 
-        const title = decode(titleLink.text().trim() || $('h3.h5, .post-title', el).text().trim())
-        if (!title) return
+        const titleMatch = block.match(/<h3[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                           block.match(/title=["']([^"']+)["']/i)
+        const title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
+        if (!title) continue
 
-        const img = $('div.item-thumb img, div.tab-thumb img, img', el).first()
-        const image = extractImageSrc(img)
-
-        const subtitle = decode($('span.font-meta.chapter a, span.font-meta.chapter, .chapter-item .chapter a', el).first().text().trim())
+        const image = extractImageSrc(block)
+        const subMatch = block.match(/<span class="font-meta chapter">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)
+        const subtitle = subMatch ? decode(subMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
 
         items.push(App.createPartialSourceManga({
             mangaId: slug,
@@ -207,7 +220,7 @@ export function parseMangaItems($: cheerio.CheerioAPI): PartialSourceManga[] {
             title,
             subtitle: subtitle || undefined
         }))
-    })
+    }
 
     return items
 }

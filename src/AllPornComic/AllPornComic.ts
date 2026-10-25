@@ -1,5 +1,26 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
+// Safety polyfills for JavaScriptCore in iOS
+const g: any = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this))
+if (typeof g.atob === 'undefined') {
+    g.atob = (b64: string) => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+        let str = b64.replace(/=+$/, '')
+        let output = ''
+        for (let bc = 0, bs = 0, buffer, idx = 0; buffer = str.charAt(idx++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
+            buffer = chars.indexOf(buffer)
+        }
+        return output
+    }
+}
+if (typeof g.Buffer === 'undefined') {
+    g.Buffer = {
+        from: (data: string, encoding: string) => ({
+            toString: () => data
+        })
+    }
+}
+
 import {
     BadgeColor,
     Chapter,
@@ -21,7 +42,6 @@ import {
     SourceIntents,
     SourceManga
 } from '@paperback/types'
-import * as cheerio from 'cheerio'
 import {
     parseChapterDetails,
     parseChapters,
@@ -32,7 +52,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -99,8 +119,7 @@ export class AllPornComic implements
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        const $ = cheerio.load(response.data || '')
-        return parseMangaDetails($, mangaId)
+        return parseMangaDetails(response.data || '', mangaId)
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
@@ -111,8 +130,7 @@ export class AllPornComic implements
         })
         const response = await this.requestManager.schedule(request, 1)
         const html = response.data || ''
-        let $ = cheerio.load(html)
-        let chapters = parseChapters($, mangaId)
+        let chapters = parseChapters(html, mangaId)
 
         // 2. Fallback: Madara AJAX chapters endpoint if static page had no chapters
         if (chapters.length === 0) {
@@ -122,8 +140,7 @@ export class AllPornComic implements
                     method: 'POST'
                 })
                 const ajaxRes = await this.requestManager.schedule(ajaxRequest, 1)
-                $ = cheerio.load(ajaxRes.data || '')
-                chapters = parseChapters($, mangaId)
+                chapters = parseChapters(ajaxRes.data || '', mangaId)
             } catch {
                 // Ignore and proceed
             }
@@ -139,8 +156,7 @@ export class AllPornComic implements
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        const $ = cheerio.load(response.data || '')
-        return parseChapterDetails($, mangaId, chapterId)
+        return parseChapterDetails(response.data || '', mangaId, chapterId)
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
@@ -214,8 +230,7 @@ export class AllPornComic implements
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        const $ = cheerio.load(response.data || '')
-        return parseMangaItems($)
+        return parseMangaItems(response.data || '')
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
@@ -240,8 +255,7 @@ export class AllPornComic implements
             if (response.status === 404) {
                 return App.createPagedResults({ results: [] })
             }
-            const $ = cheerio.load(response.data || '')
-            const items = parseMangaItems($)
+            const items = parseMangaItems(response.data || '')
             const nextMetadata = items.length >= 10 ? { page: page + 1 } : undefined
 
             return App.createPagedResults({
