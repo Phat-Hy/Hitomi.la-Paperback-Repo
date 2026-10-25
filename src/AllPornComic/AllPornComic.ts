@@ -57,7 +57,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.12',
+    version: '1.0.13',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',

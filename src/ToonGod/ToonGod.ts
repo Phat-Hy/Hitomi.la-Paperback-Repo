@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.1.3',
+    version: '1.1.4',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',

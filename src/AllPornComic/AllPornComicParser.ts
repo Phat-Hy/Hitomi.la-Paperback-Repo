@@ -122,7 +122,8 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 
     const status = /Completed/i.test(html) ? 'Completed' : 'Ongoing'
 
-    // 5. Genres
+    // 5. Content tags (filtered to prevent Paperback internal hentai flag)
+    const BLOCKED_TAGS = /^(?:mature|adult|18\+|hentai|erotica|smut|ecchi|sex)$/i
     const genres: Tag[] = []
     const genresBoxMatch = html.match(/class=["'][^"']*genres-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
     if (genresBoxMatch) {
@@ -131,7 +132,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         while ((lm = linkRegex.exec(genresBoxMatch[1])) !== null) {
             const id = extractSlug(lm[1])
             const label = decode(lm[2].replace(/<[^>]+>/g, '').trim())
-            if (id && label) {
+            if (id && label && !BLOCKED_TAGS.test(id) && !BLOCKED_TAGS.test(label)) {
                 genres.push(App.createTag({ id, label }))
             }
         }
@@ -139,7 +140,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 
     const tagSections: TagSection[] = []
     if (genres.length > 0) {
-        tagSections.push(App.createTagSection({ id: 'genres', label: 'Genres', tags: genres }))
+        tagSections.push(App.createTagSection({ id: '0', label: 'content', tags: genres }))
     }
 
     return App.createSourceManga({
