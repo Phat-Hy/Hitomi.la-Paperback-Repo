@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.2',
+    version: '1.0.3',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -229,47 +229,14 @@ export class ToonGod implements
     }
 
     private async fetchSectionItems(orderby: string, page: number): Promise<PartialSourceManga[]> {
-        const pageParam = page > 1 ? `page/${page}/` : ''
-        
-        // 1. Primary: /webtoons/[page/N/]?m_orderby=...
-        try {
-            const url = `${TOONGOD_DOMAIN}/webtoons/${pageParam}?m_orderby=${orderby}`
-            const request = App.createRequest({
-                url,
-                method: 'GET'
-            })
-            const response = await this.requestManager.schedule(request, 1)
-            const items = parseMangaItems(response.data || '')
-            if (items.length > 0) return items
-        } catch {}
-
-        // 2. Fallback for 'views' -> 'trending'
-        if (orderby === 'views') {
-            try {
-                const url = `${TOONGOD_DOMAIN}/webtoons/${pageParam}?m_orderby=trending`
-                const request = App.createRequest({
-                    url,
-                    method: 'GET'
-                })
-                const response = await this.requestManager.schedule(request, 1)
-                const items = parseMangaItems(response.data || '')
-                if (items.length > 0) return items
-            } catch {}
-        }
-
-        // 3. Fallback: query params on /webtoons/
-        try {
-            const pagePrefix = page > 1 ? `/page/${page}/` : '/'
-            const url = `${TOONGOD_DOMAIN}/webtoons${pagePrefix}?m_orderby=${orderby}&post_type=wp-manga`
-            const request = App.createRequest({
-                url,
-                method: 'GET'
-            })
-            const response = await this.requestManager.schedule(request, 1)
-            return parseMangaItems(response.data || '')
-        } catch {}
-
-        return []
+        const pageParam = page > 1 ? `/page/${page}/` : '/'
+        const url = `${TOONGOD_DOMAIN}/webtoons${pageParam}?m_orderby=${orderby}`
+        const request = App.createRequest({
+            url,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        return parseMangaItems(response.data || '')
     }
 
     async getSearchTags(): Promise<TagSection[]> {
@@ -278,7 +245,7 @@ export class ToonGod implements
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
-        const pageParam = page > 1 ? `page/${page}/` : ''
+        const pageParam = page > 1 ? `/page/${page}/` : '/'
 
         let genreSlug: string | undefined = metadata?.genreSlug
         let searchKeywords: string = metadata?.searchKeywords ?? ''
@@ -299,13 +266,13 @@ export class ToonGod implements
 
         let url: string
         if (genreSlug) {
+            const pagePrefix = page > 1 ? `page/${page}/` : ''
             const searchParam = searchKeywords ? `?s=${encodeURIComponent(searchKeywords)}` : ''
-            url = `${TOONGOD_DOMAIN}/webtoon-genre/${encodeURIComponent(genreSlug)}/${pageParam}${searchParam}`
+            url = `${TOONGOD_DOMAIN}/webtoon-genre/${encodeURIComponent(genreSlug)}/${pagePrefix}${searchParam}`
         } else if (searchKeywords) {
-            const pagePrefix = page > 1 ? `/page/${page}/` : '/'
-            url = `${TOONGOD_DOMAIN}${pagePrefix}?s=${encodeURIComponent(searchKeywords)}&post_type=wp-manga`
+            url = `${TOONGOD_DOMAIN}${pageParam}?s=${encodeURIComponent(searchKeywords)}&post_type=wp-manga`
         } else {
-            url = `${TOONGOD_DOMAIN}/webtoons/${pageParam}?m_orderby=latest`
+            url = `${TOONGOD_DOMAIN}/webtoons${pageParam}?m_orderby=latest`
         }
 
         try {

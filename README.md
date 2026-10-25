@@ -5,7 +5,7 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
 [![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.4-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
-[![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.0.2-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.0.3-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
 
 ### 3. 👑 ToonGod (`toongod.org`)
@@ -40,7 +40,7 @@ Full-featured extension for ToonGod adult manhwa, webtoons, and manga:
 5. Tap **Add** and install either or both extensions from the catalog:
    - **Hitomi** (v1.2.11)
    - **AllPornComic** (v1.0.4)
-   - **ToonGod** (v1.0.2)
+   - **ToonGod** (v1.0.3)
 
 ---
 
