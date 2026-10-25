@@ -14,16 +14,17 @@ const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export function extractImageSrc(tagStr: string): string {
     if (!tagStr) return ''
-    const dataMatch = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc)=["']([^"'s]+)["']/i)
+    const dataMatch = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc)=["']([^"'\s]+)["']/i)
     let src = ''
     if (dataMatch && dataMatch[1]) {
         src = dataMatch[1]
     } else {
-        const srcsetMatch = tagStr.match(/(?:data-srcset|srcset)=["']([^"'s]+)/i)
+        const srcsetMatch = tagStr.match(/(?:data-srcset|srcset)=["']([^"']+)["']/i)
         if (srcsetMatch && srcsetMatch[1]) {
-            src = srcsetMatch[1]
+            const parts = srcsetMatch[1].split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean)
+            src = parts.pop() || ''
         } else {
-            const srcMatch = tagStr.match(/src=["']([^"'s]+)["']/i)
+            const srcMatch = tagStr.match(/src=["']([^"'\s]+)["']/i)
             if (srcMatch && srcMatch[1] && !srcMatch[1].includes('dflazy') && !srcMatch[1].includes('placeholder')) {
                 src = srcMatch[1]
             }

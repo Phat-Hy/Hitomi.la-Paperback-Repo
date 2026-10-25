@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.3',
+    version: '1.0.4',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -92,13 +92,14 @@ export class ToonGod implements
             interceptRequest: async (request: Request): Promise<Request> => {
                 request.headers = {
                     ...(request.headers ?? {}),
-                    referer: `${TOONGOD_DOMAIN}/`,
-                    Referer: `${TOONGOD_DOMAIN}/`,
-                    Origin: TOONGOD_DOMAIN
+                    Referer: `${TOONGOD_DOMAIN}/`
                 }
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
+                if (response.status === 403 || response.status === 503 || (response.data && (response.data.includes('cf-mitigated') || response.data.includes('Just a moment...')))) {
+                    throw new Error('Cloudflare challenge detected! Please bypass Cloudflare in ToonGod settings.')
+                }
                 return response
             }
         }
@@ -106,10 +107,10 @@ export class ToonGod implements
 
     async getCloudflareBypassRequestAsync(): Promise<Request> {
         return App.createRequest({
-            url: `${TOONGOD_DOMAIN}/`,
+            url: `${TOONGOD_DOMAIN}/webtoons/`,
             method: 'GET',
             headers: {
-                referer: `${TOONGOD_DOMAIN}/`
+                Referer: `${TOONGOD_DOMAIN}/`
             }
         })
     }
@@ -204,16 +205,28 @@ export class ToonGod implements
             }
         ]
 
-        for (const { section, orderby } of sections) {
+        for (const { section } of sections) {
             sectionCallback(section)
+        }
+
+        let loadedCount = 0
+        let lastError: any = null
+
+        for (const { section, orderby } of sections) {
             try {
                 const items = await this.fetchSectionItems(orderby, 1)
-                section.items = items
-                sectionCallback(section)
-            } catch {
-                section.items = []
-                sectionCallback(section)
+                if (items.length > 0) {
+                    section.items = items
+                    sectionCallback(section)
+                    loadedCount++
+                }
+            } catch (err) {
+                lastError = err
             }
+        }
+
+        if (loadedCount === 0 && lastError) {
+            throw lastError
         }
     }
 
