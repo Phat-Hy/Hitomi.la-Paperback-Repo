@@ -57,7 +57,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.6',
+    version: '1.0.7',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -65,7 +65,7 @@ export const AllPornComicInfo: SourceInfo = {
     description: 'Extension that pulls adult comics and webtoons from allporncomic.com',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: APC_DOMAIN,
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
     sourceTags: [
         {
             text: '18+',

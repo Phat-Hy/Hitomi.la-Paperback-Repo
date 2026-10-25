@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.7',
+    version: '1.0.8',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -65,7 +65,7 @@ export const ToonGodInfo: SourceInfo = {
     description: 'Extension that pulls adult manhwa and webtoons from toongod.org',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: TOONGOD_DOMAIN,
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
     sourceTags: [
         {
             text: '18+',
