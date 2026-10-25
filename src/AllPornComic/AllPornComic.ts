@@ -34,6 +34,7 @@ import {
     MangaProviding,
     PagedResults,
     PartialSourceManga,
+    TagSection,
     Request,
     Response,
     SearchRequest,
@@ -48,11 +49,15 @@ import {
     parseMangaDetails,
     parseMangaItems
 } from './AllPornComicParser'
+import {
+    getAllTagSections,
+    parseSearchPrefix
+} from './AllPornComicTags'
 
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.2',
+    version: '1.0.3',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -234,16 +239,37 @@ export class AllPornComic implements
         return parseMangaItems(response.data || '')
     }
 
+    async getSearchTags(): Promise<TagSection[]> {
+        return getAllTagSections()
+    }
+
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
         const pageParam = page > 1 ? `/page/${page}/` : '/'
-        let url: string
+        let taxPath: string | undefined
+        let searchKeywords = ''
 
+        // 1. Tag selection from Paperback filter sheet
+        if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
+            taxPath = query.includedTags[0].id
+        }
+
+        // 2. Query title with smart prefix support (tag:, artist:, etc.)
         if (query.title && query.title.trim().length > 0) {
-            url = `${APC_DOMAIN}${pageParam}?s=${encodeURIComponent(query.title.trim())}&post_type=wp-manga`
-        } else if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
-            const genreSlug = query.includedTags[0].id
-            url = page > 1 ? `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/page/${page}/` : `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/`
+            const parsed = parseSearchPrefix(query.title)
+            if (parsed.taxPath && !taxPath) {
+                taxPath = parsed.taxPath
+            }
+            searchKeywords = parsed.searchKeywords
+        }
+
+        let url: string
+        if (taxPath) {
+            const cleanTax = taxPath.replace(/^\//, '').replace(/\/$/, '')
+            const searchParam = searchKeywords ? `?s=${encodeURIComponent(searchKeywords)}&post_type=wp-manga` : ''
+            url = `${APC_DOMAIN}/${cleanTax}${pageParam}${searchParam}`
+        } else if (searchKeywords) {
+            url = `${APC_DOMAIN}${pageParam}?s=${encodeURIComponent(searchKeywords)}&post_type=wp-manga`
         } else {
             url = `${APC_DOMAIN}${pageParam}?m_orderby=latest&post_type=wp-manga`
         }
