@@ -14,17 +14,17 @@ const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export function extractImageSrc(tagStr: string): string {
     if (!tagStr) return ''
-    const dataMatch = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc)=["']([^"'\s]+)["']/i)
+    const dataMatch = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc)=["']\s*([^"'\s]+)\s*["']/i)
     let src = ''
     if (dataMatch && dataMatch[1]) {
         src = dataMatch[1]
     } else {
-        const srcsetMatch = tagStr.match(/(?:data-srcset|srcset)=["']([^"']+)["']/i)
+        const srcsetMatch = tagStr.match(/(?:data-srcset|srcset)=["']\s*([^"']+)\s*["']/i)
         if (srcsetMatch && srcsetMatch[1]) {
             const parts = srcsetMatch[1].split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean)
             src = parts.pop() || ''
         } else {
-            const srcMatch = tagStr.match(/src=["']([^"'\s]+)["']/i)
+            const srcMatch = tagStr.match(/src=["']\s*([^"'\s]+)\s*["']/i)
             if (srcMatch && srcMatch[1] && !srcMatch[1].includes('dflazy') && !srcMatch[1].includes('placeholder')) {
                 src = srcMatch[1]
             }
@@ -186,16 +186,53 @@ export function parseChapters(html: string, mangaId: string): Chapter[] {
 
 export function parseChapterDetails(html: string, mangaId: string, chapterId: string): ChapterDetails {
     const pages: string[] = []
-    const readingAreaMatch = html.match(/<div class="(?:reading-content|page-break|wp-manga-chapter-img)"[^>]*>([\s\S]*?)<div class="(?:nav-links|c-selectpicker_header)/i) ||
-                             html.match(/<div class="reading-content"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i)
-    const searchHtml = readingAreaMatch ? readingAreaMatch[1] : html
 
-    const imgRegex = /<img[^>]+(?:data-src|data-lazy-src|data-cfsrc|src)=["']([^"']+)["'][^>]*>/gi
+    // 1. Isolate the reading container without truncating at nested </div>
+    let searchHtml = html
+    const rcStart = html.search(/class=["'][^"']*reading-content[^"']*["']/i)
+    if (rcStart !== -1) {
+        const afterRc = html.slice(rcStart)
+        const rcEnd = afterRc.search(/class=["'][^"']*(?:entry-header_footer|manga-reading-nav-foot|nav-links|comments-area)[^"']*["']|<footer/i)
+        if (rcEnd !== -1) {
+            searchHtml = afterRc.slice(0, rcEnd)
+        } else {
+            searchHtml = afterRc
+        }
+    }
+
+    // 2. Extract all images from searchHtml
+    const imgRegex = /<img\s+[^>]*>/gi
     let m: RegExpExecArray | null
     while ((m = imgRegex.exec(searchHtml)) !== null) {
-        const src = extractImageSrc(m[0])
-        if (src && !pages.includes(src) && !src.includes('logo') && !src.includes('banner')) {
-            pages.push(encodeURI(src))
+        const tag = m[0]
+        if (rcStart === -1 && !tag.includes('wp-manga-chapter-img') && !tag.includes('image-') && !tag.includes('page-break')) {
+            continue
+        }
+        const src = extractImageSrc(tag)
+        if (src && !pages.includes(src) && !src.includes('logo') && !src.includes('banner') && !src.includes('icon') && !src.includes('dflazy') && !src.includes('placeholder')) {
+            pages.push(src)
+        }
+    }
+
+    // 3. Fallback: scan whole html for wp-manga-chapter-img or id="image-
+    if (pages.length === 0) {
+        const chImgRegex = /<img\s+[^>]*class=["'][^"']*wp-manga-chapter-img[^"']*["'][^>]*>|<img\s+[^>]*id=["']image-\d+["'][^>]*>/gi
+        while ((m = chImgRegex.exec(html)) !== null) {
+            const src = extractImageSrc(m[0])
+            if (src && !pages.includes(src) && !src.includes('logo') && !src.includes('banner') && !src.includes('dflazy')) {
+                pages.push(src)
+            }
+        }
+    }
+
+    // 4. Fallback 2: scan whole html for any upload image
+    if (pages.length === 0) {
+        const uploadRegex = /<img\s+[^>]+(?:data-src|data-lazy-src|src)=["']\s*([^"'\s]+\/(?:uploads|chapter)[^"'\s]*)\s*["'][^>]*>/gi
+        while ((m = uploadRegex.exec(html)) !== null) {
+            const src = extractImageSrc(m[0])
+            if (src && !pages.includes(src) && !src.includes('logo') && !src.includes('banner') && !src.includes('dflazy')) {
+                pages.push(src)
+            }
         }
     }
 

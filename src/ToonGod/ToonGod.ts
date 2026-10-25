@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.4',
+    version: '1.0.5',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -156,13 +156,25 @@ export class ToonGod implements
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const url = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${chapterId}/?style=list`
+        const listUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${chapterId}/?style=list`
         const request = App.createRequest({
-            url,
+            url: listUrl,
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
-        return parseChapterDetails(response.data || '', mangaId, chapterId)
+        let details = parseChapterDetails(response.data || '', mangaId, chapterId)
+
+        if (details.pages.length === 0) {
+            const directUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${chapterId}/`
+            const directReq = App.createRequest({
+                url: directUrl,
+                method: 'GET'
+            })
+            const directRes = await this.requestManager.schedule(directReq, 1)
+            details = parseChapterDetails(directRes.data || '', mangaId, chapterId)
+        }
+
+        return details
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
