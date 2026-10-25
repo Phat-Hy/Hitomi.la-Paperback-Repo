@@ -52,7 +52,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.1',
+    version: '1.0.2',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -224,7 +224,8 @@ export class AllPornComic implements
     }
 
     private async fetchSectionItems(orderby: string, page: number): Promise<PartialSourceManga[]> {
-        const url = `${APC_DOMAIN}/page/${page}/?m_orderby=${orderby}&post_type=wp-manga`
+        const pageParam = page > 1 ? `/page/${page}/` : '/'
+        const url = `${APC_DOMAIN}${pageParam}?m_orderby=${orderby}&post_type=wp-manga`
         const request = App.createRequest({
             url,
             method: 'GET'
@@ -235,15 +236,16 @@ export class AllPornComic implements
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
         const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
+        const pageParam = page > 1 ? `/page/${page}/` : '/'
         let url: string
 
         if (query.title && query.title.trim().length > 0) {
-            url = `${APC_DOMAIN}/page/${page}/?s=${encodeURIComponent(query.title.trim())}&post_type=wp-manga`
+            url = `${APC_DOMAIN}${pageParam}?s=${encodeURIComponent(query.title.trim())}&post_type=wp-manga`
         } else if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
             const genreSlug = query.includedTags[0].id
-            url = `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/page/${page}/`
+            url = page > 1 ? `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/page/${page}/` : `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/`
         } else {
-            url = `${APC_DOMAIN}/page/${page}/?m_orderby=latest&post_type=wp-manga`
+            url = `${APC_DOMAIN}${pageParam}?m_orderby=latest&post_type=wp-manga`
         }
 
         try {

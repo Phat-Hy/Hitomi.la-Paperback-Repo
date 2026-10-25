@@ -192,27 +192,34 @@ export function parseChapterDetails(html: string, mangaId: string, chapterId: st
 export function parseMangaItems(html: string): PartialSourceManga[] {
     const items: PartialSourceManga[] = []
     const seen = new Set<string>()
-    const itemRegex = /<div class="(?:c-tabs-item__content|page-item-detail)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi
-    let m: RegExpExecArray | null
+    const blocks = html.split(/<div\s+class="[^"]*(?:c-tabs-item__content|page-item-detail|badge-pos-1)[^"]*"/i).slice(1)
 
-    while ((m = itemRegex.exec(html)) !== null) {
-        const block = m[1]
-        const linkMatch = block.match(/<a[^>]+href=["']([^"']*\/porncomic\/[^"']+)["']/i) ||
-                          block.match(/<a[^>]+href=["']([^"']+)["']/i)
+    for (const block of blocks) {
+        const linkMatch = block.match(/href=["'](https?:\/\/[^"']*\/porncomic\/[^"'/]+\/?)["']/i) ||
+                          block.match(/href=["'](\/?porncomic\/[^"'/]+\/?)["']/i) ||
+                          block.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>/i)
         if (!linkMatch) continue
 
         const slug = extractSlug(linkMatch[1])
-        if (!slug || seen.has(slug)) continue
-        seen.add(slug)
+        if (!slug || seen.has(slug) || slug === 'porncomic' || slug === 'wp-content' || slug === 'wp-json') continue
 
-        const titleMatch = block.match(/<h3[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+        const titleMatch = block.match(/<h[3-5][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                           block.match(/<div\s+class="post-title[^"]*">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                           block.match(/<a[^>]+href=["'][^"']*\/porncomic\/[^"'/]+\/?[^"']*title=["']([^"']+)["']/i) ||
+                           block.match(/class="post-title"[\s\S]*?>([\s\S]*?)<\//i) ||
                            block.match(/title=["']([^"']+)["']/i)
         const title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
         if (!title) continue
 
-        const image = extractImageSrc(block)
-        const subMatch = block.match(/<span class="font-meta chapter">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)
-        const subtitle = subMatch ? decode(subMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
+        seen.add(slug)
+
+        const imgMatch = block.match(/<img\s+[^>]*>/i)
+        const image = imgMatch ? extractImageSrc(imgMatch[0]) : ''
+
+        const chMatch = block.match(/class="font-meta\s+chapter"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                        block.match(/class="chapter-item"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                        block.match(/class="chapter"[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)
+        const subtitle = chMatch ? decode(chMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
 
         items.push(App.createPartialSourceManga({
             mangaId: slug,
