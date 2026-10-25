@@ -26,6 +26,7 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
+    CloudflareBypassRequestProviding,
     ContentRating,
     HomePageSectionsProviding,
     HomeSection,
@@ -56,7 +57,7 @@ import {
 const APC_DOMAIN = 'https://allporncomic.com'
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.10',
+    version: '1.0.11',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -64,11 +65,15 @@ export const AllPornComicInfo: SourceInfo = {
     description: 'Extension that pulls adult comics and webtoons from allporncomic.com',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: APC_DOMAIN,
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
     sourceTags: [
         {
             text: '18+',
             type: BadgeColor.RED
+        },
+        {
+            text: 'Cloudflare',
+            type: BadgeColor.GREY
         }
     ]
 }
@@ -77,7 +82,8 @@ export class AllPornComic implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding {
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding {
 
     requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -93,10 +99,23 @@ export class AllPornComic implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
+                if (response.status === 403 || response.status === 503 || (response.data && (response.data.includes('cf-mitigated') || response.data.includes('Just a moment...') || response.data.includes('challenge-platform')))) {
+                    throw new Error('Cloudflare challenge detected! Please tap the Cloud icon on Discover page to bypass.')
+                }
                 return response
             }
         }
     })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({
+            url: `${APC_DOMAIN}/`,
+            method: 'GET',
+            headers: {
+                referer: `${APC_DOMAIN}/`
+            }
+        })
+    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${APC_DOMAIN}/porncomic/${mangaId}/`

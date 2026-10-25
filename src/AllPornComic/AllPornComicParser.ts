@@ -60,6 +60,9 @@ export function parseDate(dateStr: string): Date {
 }
 
 export function parseMangaDetails(html: string, mangaId: string): SourceManga {
+    if (html.includes('cf-mitigated') || html.includes('Just a moment...') || html.includes('challenge-platform')) {
+        throw new Error('Cloudflare challenge detected! Please tap the Cloud icon on Discover page to bypass.')
+    }
     // 1. Title
     const titleMatch = html.match(/class=["'][^"']*post-title[^"']*["'][^>]*>[\s\S]*?<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i) ||
                        html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
@@ -154,6 +157,9 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 }
 
 export function parseChapters(html: string, mangaId: string): Chapter[] {
+    if (html.includes('cf-mitigated') || html.includes('Just a moment...') || html.includes('challenge-platform')) {
+        throw new Error('Cloudflare challenge detected! Please tap the Cloud icon on Discover page to bypass.')
+    }
     const rawChapters: { chapterSlug: string; name: string; parsedNum: number; validTime: Date }[] = []
     const chapterRegex = /<li[^>]+class="[^"]*wp-manga-chapter[^"]*"[^>]*>([\s\S]*?)<\/li>/gi
     let m: RegExpExecArray | null

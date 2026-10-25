@@ -26,6 +26,7 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
+    CloudflareBypassRequestProviding,
     ContentRating,
     HomePageSectionsProviding,
     HomeSection,
@@ -56,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.1.1',
+    version: '1.1.2',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -64,11 +65,15 @@ export const ToonGodInfo: SourceInfo = {
     description: 'Extension that pulls adult manhwa and webtoons from toongod.org',
     contentRating: ContentRating.ADULT,
     websiteBaseURL: TOONGOD_DOMAIN,
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
     sourceTags: [
         {
             text: '18+',
             type: BadgeColor.RED
+        },
+        {
+            text: 'Cloudflare',
+            type: BadgeColor.GREY
         }
     ]
 }
@@ -77,7 +82,8 @@ export class ToonGod implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding {
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding {
 
     requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -91,10 +97,23 @@ export class ToonGod implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
+                if (response.status === 403 || response.status === 503 || (response.data && (response.data.includes('cf-mitigated') || response.data.includes('Just a moment...') || response.data.includes('challenge-platform')))) {
+                    throw new Error('Cloudflare challenge detected! Please tap the Cloud icon on Discover page to bypass.')
+                }
                 return response
             }
         }
     })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({
+            url: `${TOONGOD_DOMAIN}/webtoons/`,
+            method: 'GET',
+            headers: {
+                Referer: `${TOONGOD_DOMAIN}/`
+            }
+        })
+    }
 
     getMangaShareUrl(mangaId: string): string {
         return `${TOONGOD_DOMAIN}/webtoon/${mangaId}/`
