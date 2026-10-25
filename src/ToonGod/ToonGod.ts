@@ -57,7 +57,7 @@ import {
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -230,13 +230,45 @@ export class ToonGod implements
 
     private async fetchSectionItems(orderby: string, page: number): Promise<PartialSourceManga[]> {
         const pageParam = page > 1 ? `/page/${page}/` : '/'
-        const url = `${TOONGOD_DOMAIN}/webtoons${pageParam}?m_orderby=${orderby}&post_type=wp-manga`
-        const request = App.createRequest({
-            url,
-            method: 'GET'
-        })
-        const response = await this.requestManager.schedule(request, 1)
-        return parseMangaItems(response.data || '')
+        
+        // 1. Primary: Standard root Madara URL (e.g. /?m_orderby=latest&post_type=wp-manga)
+        try {
+            const url = `${TOONGOD_DOMAIN}${pageParam}?m_orderby=${orderby}&post_type=wp-manga`
+            const request = App.createRequest({
+                url,
+                method: 'GET'
+            })
+            const response = await this.requestManager.schedule(request, 1)
+            const items = parseMangaItems(response.data || '')
+            if (items.length > 0) return items
+        } catch {}
+
+        // 2. Secondary fallback: /webtoons/ archive
+        try {
+            const url = `${TOONGOD_DOMAIN}/webtoons${pageParam}?m_orderby=${orderby}&post_type=wp-manga`
+            const request = App.createRequest({
+                url,
+                method: 'GET'
+            })
+            const response = await this.requestManager.schedule(request, 1)
+            const items = parseMangaItems(response.data || '')
+            if (items.length > 0) return items
+        } catch {}
+
+        // 3. Tertiary fallback for page 1: Homepage root
+        if (page === 1) {
+            try {
+                const request = App.createRequest({
+                    url: `${TOONGOD_DOMAIN}/`,
+                    method: 'GET'
+                })
+                const response = await this.requestManager.schedule(request, 1)
+                const items = parseMangaItems(response.data || '')
+                if (items.length > 0) return items
+            } catch {}
+        }
+
+        return []
     }
 
     async getSearchTags(): Promise<TagSection[]> {
@@ -271,7 +303,7 @@ export class ToonGod implements
         } else if (searchKeywords) {
             url = `${TOONGOD_DOMAIN}${pageParam}?s=${encodeURIComponent(searchKeywords)}&post_type=wp-manga`
         } else {
-            url = `${TOONGOD_DOMAIN}/webtoons${pageParam}?m_orderby=latest&post_type=wp-manga`
+            url = `${TOONGOD_DOMAIN}${pageParam}?m_orderby=latest&post_type=wp-manga`
         }
 
         try {

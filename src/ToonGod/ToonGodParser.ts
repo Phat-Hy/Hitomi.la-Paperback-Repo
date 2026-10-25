@@ -14,7 +14,7 @@ const TOONGOD_DOMAIN = 'https://www.toongod.org'
 
 export function extractImageSrc(tagStr: string): string {
     if (!tagStr) return ''
-    const match = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc|src)=["']([^"']+)["']/i)
+    const match = tagStr.match(/(?:data-src|data-lazy-src|data-cfsrc|srcset|src)=["']([^"'s]+)["']/i)
     if (!match || !match[1]) return ''
     let src = match[1].trim().replace(/-\d+x\d+(\.\w+)$/, '$1')
     if (src.startsWith('//')) src = 'https:' + src
@@ -194,7 +194,7 @@ export function parseChapterDetails(html: string, mangaId: string, chapterId: st
 export function parseMangaItems(html: string): PartialSourceManga[] {
     const items: PartialSourceManga[] = []
     const seen = new Set<string>()
-    const blocks = html.split(/<div\s+class="[^"]*(?:c-tabs-item__content|page-item-detail|badge-pos-1)[^"]*"/i).slice(1)
+    const blocks = html.split(/<div\s+class="[^"]*(?:c-tabs-item__content|page-item-detail|manga-item|badge-pos-1|item-summary|popular-item|slider__item|page-listing-item)[^"]*"/i).slice(1)
 
     for (const block of blocks) {
         const linkMatch = block.match(/href=["'](https?:\/\/[^"']*\/(?:webtoon|manga|webtoons)\/[^"'\/]+\/?)["']/i) ||
@@ -205,10 +205,11 @@ export function parseMangaItems(html: string): PartialSourceManga[] {
         const slug = extractSlug(linkMatch[1])
         if (!slug || seen.has(slug) || slug === 'webtoon' || slug === 'webtoons' || slug === 'manga' || slug === 'wp-content' || slug === 'wp-json') continue
 
-        const titleMatch = block.match(/<h[3-5][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
-                           block.match(/<div\s+class="post-title[^"]*">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+        const titleMatch = block.match(/<h[1-5][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                           block.match(/class="[^"]*post-title[^"]*"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
+                           block.match(/class="[^"]*manga-title[^"]*"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||
                            block.match(/<a[^>]+href=["'][^"']*\/(?:webtoon|manga)\/[^"'\/]+\/?[^"']*title=["']([^"']+)["']/i) ||
-                           block.match(/class="post-title"[\s\S]*?>([\s\S]*?)<\//i) ||
+                           block.match(/class="[^"]*post-title[^"]*"[\s\S]*?>([\s\S]*?)<\//i) ||
                            block.match(/title=["']([^"']+)["']/i)
         const title = titleMatch ? decode(titleMatch[1].replace(/<[^>]+>/g, '').trim()) : ''
         if (!title) continue
