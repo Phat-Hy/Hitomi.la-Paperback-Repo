@@ -77,8 +77,21 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         }
     }
 
-    const summaryImgMatch = html.match(/<div class="summary_image">([\s\S]*?)<\/div>/i)
-    const image = summaryImgMatch ? extractImageSrc(summaryImgMatch[1]) : ''
+    const summaryImgMatch = html.match(/<div class="[^"]*summary_image[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           html.match(/class="[^"]*tab-summary[^"]*"[\s\S]*?<img\s+[^>]*>/i)
+    let image = ''
+    if (summaryImgMatch) {
+        const imgTag = summaryImgMatch[0].match(/<img\s+[^>]*>/i)
+        if (imgTag) {
+            image = extractImageSrc(imgTag[0])
+        }
+    }
+    if (!image) {
+        const fallbackImg = html.match(/<img[^>]+class="[^"]*(?:wp-post-image|img-responsive)[^"]*"[^>]*>/i)
+        if (fallbackImg) {
+            image = extractImageSrc(fallbackImg[0])
+        }
+    }
 
     const authorMatch = html.match(/<div class="author-content">([\s\S]*?)<\/div>/i)
     const author = authorMatch ? decode(authorMatch[1].replace(/<[^>]+>/g, '').trim()) : 'Unknown'
@@ -125,7 +138,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
             author,
             desc,
             tags: tagSections,
-            hentai: true
+            hentai: false
         })
     })
 }
