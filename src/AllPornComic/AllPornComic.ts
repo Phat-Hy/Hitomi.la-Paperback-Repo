@@ -1,0 +1,255 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+import {
+    BadgeColor,
+    Chapter,
+    ChapterDetails,
+    ChapterProviding,
+    CloudflareBypassRequestProviding,
+    ContentRating,
+    HomePageSectionsProviding,
+    HomeSection,
+    HomeSectionType,
+    MangaProviding,
+    PagedResults,
+    PartialSourceManga,
+    Request,
+    Response,
+    SearchRequest,
+    SearchResultsProviding,
+    SourceInfo,
+    SourceIntents,
+    SourceManga
+} from '@paperback/types'
+import * as cheerio from 'cheerio'
+import {
+    parseChapterDetails,
+    parseChapters,
+    parseMangaDetails,
+    parseMangaItems
+} from './AllPornComicParser'
+
+const APC_DOMAIN = 'https://allporncomic.com'
+
+export const AllPornComicInfo: SourceInfo = {
+    version: '1.0.0',
+    name: 'AllPornComic',
+    icon: 'icon.png',
+    author: 'Phat-Hy',
+    authorWebsite: 'https://github.com/Phat-Hy',
+    description: 'Extension that pulls adult comics and webtoons from allporncomic.com',
+    contentRating: ContentRating.ADULT,
+    websiteBaseURL: APC_DOMAIN,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
+    sourceTags: [
+        {
+            text: '18+',
+            type: BadgeColor.RED
+        },
+        {
+            text: 'Cloudflare',
+            type: BadgeColor.GREY
+        }
+    ]
+}
+
+export class AllPornComic implements
+    SearchResultsProviding,
+    MangaProviding,
+    ChapterProviding,
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding {
+
+    requestManager = App.createRequestManager({
+        requestsPerSecond: 4,
+        requestTimeout: 25000,
+        interceptor: {
+            interceptRequest: async (request: Request): Promise<Request> => {
+                request.headers = {
+                    ...(request.headers ?? {}),
+                    referer: `${APC_DOMAIN}/`,
+                    Referer: `${APC_DOMAIN}/`,
+                    Origin: APC_DOMAIN
+                }
+                return request
+            },
+            interceptResponse: async (response: Response): Promise<Response> => {
+                return response
+            }
+        }
+    })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({
+            url: `${APC_DOMAIN}/`,
+            method: 'GET',
+            headers: {
+                referer: `${APC_DOMAIN}/`
+            }
+        })
+    }
+
+    getMangaShareUrl(mangaId: string): string {
+        return `${APC_DOMAIN}/porncomic/${mangaId}/`
+    }
+
+    async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        const request = App.createRequest({
+            url: `${APC_DOMAIN}/porncomic/${mangaId}/`,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        const $ = cheerio.load(response.data || '')
+        return parseMangaDetails($, mangaId)
+    }
+
+    async getChapters(mangaId: string): Promise<Chapter[]> {
+        // 1. First attempt: chapters embedded in the manga page
+        const request = App.createRequest({
+            url: `${APC_DOMAIN}/porncomic/${mangaId}/`,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        const html = response.data || ''
+        let $ = cheerio.load(html)
+        let chapters = parseChapters($, mangaId)
+
+        // 2. Fallback: Madara AJAX chapters endpoint if static page had no chapters
+        if (chapters.length === 0) {
+            try {
+                const ajaxRequest = App.createRequest({
+                    url: `${APC_DOMAIN}/porncomic/${mangaId}/ajax/chapters/`,
+                    method: 'POST'
+                })
+                const ajaxRes = await this.requestManager.schedule(ajaxRequest, 1)
+                $ = cheerio.load(ajaxRes.data || '')
+                chapters = parseChapters($, mangaId)
+            } catch {
+                // Ignore and proceed
+            }
+        }
+
+        return chapters
+    }
+
+    async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+        const url = `${APC_DOMAIN}/porncomic/${mangaId}/${chapterId}/?style=list`
+        const request = App.createRequest({
+            url,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        const $ = cheerio.load(response.data || '')
+        return parseChapterDetails($, mangaId, chapterId)
+    }
+
+    async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        const sections: { section: HomeSection; orderby: string }[] = [
+            {
+                section: App.createHomeSection({
+                    id: 'latest',
+                    title: 'Latest Updates',
+                    view_more: true,
+                    type: HomeSectionType.singleRowLarge
+                }),
+                orderby: 'latest'
+            },
+            {
+                section: App.createHomeSection({
+                    id: 'views',
+                    title: 'Most Popular',
+                    view_more: true,
+                    type: HomeSectionType.singleRowNormal
+                }),
+                orderby: 'views'
+            },
+            {
+                section: App.createHomeSection({
+                    id: 'rating',
+                    title: 'Top Rated',
+                    view_more: true,
+                    type: HomeSectionType.singleRowNormal
+                }),
+                orderby: 'rating'
+            },
+            {
+                section: App.createHomeSection({
+                    id: 'new-manga',
+                    title: 'New Releases',
+                    view_more: true,
+                    type: HomeSectionType.singleRowNormal
+                }),
+                orderby: 'new-manga'
+            }
+        ]
+
+        for (const { section, orderby } of sections) {
+            sectionCallback(section)
+            try {
+                const items = await this.fetchSectionItems(orderby, 1)
+                section.items = items
+                sectionCallback(section)
+            } catch {
+                section.items = []
+                sectionCallback(section)
+            }
+        }
+    }
+
+    async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
+        const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
+        const items = await this.fetchSectionItems(homepageSectionId, page)
+        const nextMetadata = items.length >= 10 ? { page: page + 1 } : undefined
+
+        return App.createPagedResults({
+            results: items,
+            metadata: nextMetadata
+        })
+    }
+
+    private async fetchSectionItems(orderby: string, page: number): Promise<PartialSourceManga[]> {
+        const url = `${APC_DOMAIN}/page/${page}/?m_orderby=${orderby}&post_type=wp-manga`
+        const request = App.createRequest({
+            url,
+            method: 'GET'
+        })
+        const response = await this.requestManager.schedule(request, 1)
+        const $ = cheerio.load(response.data || '')
+        return parseMangaItems($)
+    }
+
+    async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+        const page: number = typeof metadata?.page === 'number' ? metadata.page : 1
+        let url: string
+
+        if (query.title && query.title.trim().length > 0) {
+            url = `${APC_DOMAIN}/page/${page}/?s=${encodeURIComponent(query.title.trim())}&post_type=wp-manga`
+        } else if (query.includedTags && query.includedTags.length > 0 && query.includedTags[0]?.id) {
+            const genreSlug = query.includedTags[0].id
+            url = `${APC_DOMAIN}/porncomic-genre/${encodeURIComponent(genreSlug)}/page/${page}/`
+        } else {
+            url = `${APC_DOMAIN}/page/${page}/?m_orderby=latest&post_type=wp-manga`
+        }
+
+        try {
+            const request = App.createRequest({
+                url,
+                method: 'GET'
+            })
+            const response = await this.requestManager.schedule(request, 1)
+            if (response.status === 404) {
+                return App.createPagedResults({ results: [] })
+            }
+            const $ = cheerio.load(response.data || '')
+            const items = parseMangaItems($)
+            const nextMetadata = items.length >= 10 ? { page: page + 1 } : undefined
+
+            return App.createPagedResults({
+                results: items,
+                metadata: nextMetadata
+            })
+        } catch {
+            return App.createPagedResults({ results: [] })
+        }
+    }
+}

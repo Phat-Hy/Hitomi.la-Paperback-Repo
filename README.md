@@ -1,9 +1,10 @@
-# Hitomi.la Paperback Repository (v0.8)
+# Paperback v0.8 Sources Repository
 
-Official Paperback v0.8 source repository for [Hitomi.la](https://hitomi.la).
+Official Paperback v0.8 source repository providing extensions for [Hitomi.la](https://hitomi.la) and [AllPornComic.com](https://allporncomic.com).
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
-[![Version](https://img.shields.io/badge/version-1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.0-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
 
 ---
@@ -21,34 +22,43 @@ Official Paperback v0.8 source repository for [Hitomi.la](https://hitomi.la).
    ```text
    https://phat-hy.github.io/Hitomi.la-Paperback-Repo/0.8/
    ```
-5. Tap **Add** and install or update the **Hitomi** extension from the catalog.
+5. Tap **Add** and install either or both extensions from the catalog:
+   - **Hitomi** (v1.2.11)
+   - **AllPornComic** (v1.0.0)
 
 ---
 
-## ✨ Features
+## 📚 Available Sources
 
-- **🏠 Multi-Section Homepage**:
+### 1. 🌸 AllPornComic (`allporncomic.com`)
+Full-featured extension for AllPornComic adult webtoons and comics:
+- **Homepage Sections**:
+  - 🔄 **Latest Updates**
+  - 🔥 **Most Popular**
+  - ⭐ **Top Rated**
+  - 🆕 **New Releases**
+- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to handle Cloudflare turnstile/clearance directly in Paperback.
+- **Search & Filter**: Search by title or browse by adult genre categories.
+- **High-Res Reader**: Automatically strips thumbnail downscaling suffixes for crisp, high-resolution comic pages.
+
+### 2. ⚡ Hitomi (`hitomi.la`)
+High-performance extension for Hitomi manga and doujinshi:
+- **Homepage Sections**:
   - 🌟 **Popular Today** (`popular-today.nozomi`)
   - 🔥 **Popular This Week** (`popular-week.nozomi`)
   - 🆕 **Recently Added** (`index-all.nozomi`)
-  - Infinite scroll pagination on "View More" sections via Range byte streams.
-
-- **🔍 Smart Composite Search**:
-  - **Exact & Fuzzy Title Search**: Two-phase B-Tree range search with candidate sorting for exact matching on multi-word phrases (e.g. *Mother and No Other!!*).
-  - **Direct ID Lookup**: Enter digits directly (e.g. `2892173`) for instantaneous gallery resolution.
-  - **Inline Namespace Filters**: Filter by language, tag, artist, series, character, group, or type directly in the search bar.
-  - **Negative Exclusions**: Prepend `-` to exclude specific tags or attributes (e.g. `-tag:cheating`).
-  - **Seamless UI Integration**: Combine typed titles with Paperback's native filter menu (e.g. typing a title while selecting Language in the filter sheet).
-  - **Deep Multi-Page Pagination**: Continuous scrolling across broad search pools (up to 1,000 titles) and infinite Nozomi feeds.
-
-- **🖼️ High-Performance Image Engine**:
-  - Real-time `gg.js` dynamic hash routing algorithm for WebP and AVIF pages.
-  - Dual subdomain distribution (`w1`/`w2` and `a1`/`a2`) with automatic fallback mapping.
-  - Built-in request interceptor injecting required Hitomi CDN headers (`Referer: https://hitomi.la/`) on all image downloads.
+- **Smart Composite Search**:
+  - Two-phase B-Tree exact & fuzzy title search.
+  - Direct gallery ID lookup (e.g. `2892173`).
+  - Typed namespace filters (`language:english`, `female:milf`, `tag:xxx`, `artist:xxx`, `type:xxx`).
+  - Negative exclusions (`-tag:cheating`, `-female:bikini`).
+- **Dynamic Image Engine**:
+  - Dynamic `gg.m` subdomain routing algorithm (`w1`/`w2` and `a1`/`a2`).
+  - Automatic `gg.js` sync and request interceptor header injection.
 
 ---
 
-## 🔎 Search Syntax Guide
+## 🔎 Hitomi Search Syntax Guide
 
 You can search using titles, namespace filters, and exclusions interchangeably:
 
@@ -62,20 +72,6 @@ You can search using titles, namespace filters, and exclusions interchangeably:
 | `artist:homunculus` | Searches galleries by specific artist |
 | `series:"fate grand order" -tag:netorare` | Series search with phrase quotes and negative tag exclusion |
 | `2892173` | Direct gallery ID lookup |
-
-### Supported Filter Prefixes
-* **Language**: `language:xxx`, `lang:xxx`
-* **Female Tags**: `female:xxx`
-* **Male Tags**: `male:xxx`
-* **General Tags**: `tag:xxx`, `-tag:xxx`
-* **Artist**: `artist:xxx`
-* **Series / Parody**: `series:xxx`, `parody:xxx`
-* **Character**: `character:xxx`, `char:xxx`
-* **Group / Circle**: `group:xxx`, `circle:xxx`
-* **Type**: `type:doujinshi`, `type:manga`, `type:artistcg`, `type:gamecg`
-
-> [!TIP]
-> Multi-word values can be enclosed in double quotes (e.g. `tag:"huge breasts"`) or typed with underscores (e.g. `tag:huge_breasts`).
 
 ---
 
@@ -113,11 +109,6 @@ npm run serve
 ## 🚀 Automated Deployment (GitHub Actions)
 
 This repository includes a GitHub Actions workflow (`.github/workflows/main.yml`) that automatically compiles the Paperback bundle on every push to `main` and publishes the output to GitHub Pages (`gh-pages` branch).
-
-### Repository Settings:
-1. Go to repository settings: [Hitomi.la-Paperback-Repo Settings](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/settings/pages).
-2. Under **Build and deployment** -> **Source**, select **Deploy from a branch**.
-3. Under **Branch**, select `gh-pages` and `/ (root)`, then click **Save**.
 
 ---
 
