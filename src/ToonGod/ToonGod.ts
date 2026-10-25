@@ -55,9 +55,14 @@ import {
 } from './ToonGodTags'
 
 const TOONGOD_DOMAIN = 'https://www.toongod.org'
+function resolveMangaSlug(mangaId: string): string {
+    if (mangaId === 'mother-hunting') return 'mother-hunting-manhwa'
+    return mangaId
+}
+
 
 export const ToonGodInfo: SourceInfo = {
-    version: '1.1.4',
+    version: '1.1.5',
     name: 'ToonGod',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -116,12 +121,12 @@ export class ToonGod implements
     }
 
     getMangaShareUrl(mangaId: string): string {
-        return `${TOONGOD_DOMAIN}/webtoon/${mangaId}/`
+        return `${TOONGOD_DOMAIN}/webtoon/${resolveMangaSlug(mangaId)}/`
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         const request = App.createRequest({
-            url: `${TOONGOD_DOMAIN}/webtoon/${mangaId}/`,
+            url: `${TOONGOD_DOMAIN}/webtoon/${resolveMangaSlug(mangaId)}/`,
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
@@ -142,7 +147,7 @@ export class ToonGod implements
         if (chapters.length === 0) {
             try {
                 const ajaxRequest = App.createRequest({
-                    url: `${TOONGOD_DOMAIN}/webtoon/${mangaId}/ajax/chapters/`,
+                    url: `${TOONGOD_DOMAIN}/webtoon/${resolveMangaSlug(mangaId)}/ajax/chapters/`,
                     method: 'POST'
                 })
                 const ajaxRes = await this.requestManager.schedule(ajaxRequest, 1)
@@ -157,7 +162,7 @@ export class ToonGod implements
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
         const cleanChapterSlug = chapterId.includes('/') ? chapterId.split('/').pop()! : chapterId
-        const listUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${cleanChapterSlug}/?style=list`
+        const listUrl = `${TOONGOD_DOMAIN}/webtoon/${resolveMangaSlug(mangaId)}/${cleanChapterSlug}/?style=list`
         const request = App.createRequest({
             url: listUrl,
             method: 'GET'
@@ -166,7 +171,7 @@ export class ToonGod implements
         let details = parseChapterDetails(response.data || '', mangaId, chapterId)
 
         if (details.pages.length === 0) {
-            const directUrl = `${TOONGOD_DOMAIN}/webtoon/${mangaId}/${chapterId}/`
+            const directUrl = `${TOONGOD_DOMAIN}/webtoon/${resolveMangaSlug(mangaId)}/${chapterId}/`
             const directReq = App.createRequest({
                 url: directUrl,
                 method: 'GET'

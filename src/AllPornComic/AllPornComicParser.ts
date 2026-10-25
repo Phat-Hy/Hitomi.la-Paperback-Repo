@@ -246,7 +246,10 @@ export function parseMangaItems(html: string): PartialSourceManga[] {
                           block.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>/i)
         if (!linkMatch) continue
 
-        const slug = extractSlug(linkMatch[1])
+        let slug = extractSlug(linkMatch[1])
+        if (slug === 'circle-y3dfa') slug = 'circle-y3df'
+        if (slug === 'au-naturel-pegasus-smithh') slug = 'au-naturel-pegasus-smith'
+        if (slug === 'family-secrets-phineas-and-ferb-vcp') slug = 'family-secrets-phineas-and-ferb'
         if (!slug || seen.has(slug) || slug === 'porncomic' || slug === 'wp-content' || slug === 'wp-json') continue
 
         const titleMatch = block.match(/<h[3-5][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||

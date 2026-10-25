@@ -300,7 +300,8 @@ export function parseMangaItems(html: string): PartialSourceManga[] {
                           block.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>/i)
         if (!linkMatch) continue
 
-        const slug = extractSlug(linkMatch[1])
+        let slug = extractSlug(linkMatch[1])
+        if (slug === 'mother-hunting-manhwa') slug = 'mother-hunting'
         if (!slug || seen.has(slug) || slug === 'webtoon' || slug === 'webtoons' || slug === 'manga' || slug === 'wp-content' || slug === 'wp-json') continue
 
         const titleMatch = block.match(/<h[1-5][^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) ||

@@ -55,9 +55,18 @@ import {
 } from './AllPornComicTags'
 
 const APC_DOMAIN = 'https://allporncomic.com'
+function resolveMangaSlug(mangaId: string): string {
+    const map: Record<string, string> = {
+        'circle-y3df': 'circle-y3dfa',
+        'au-naturel-pegasus-smith': 'au-naturel-pegasus-smithh',
+        'family-secrets-phineas-and-ferb': 'family-secrets-phineas-and-ferb-vcp'
+    }
+    return map[mangaId] || mangaId
+}
+
 
 export const AllPornComicInfo: SourceInfo = {
-    version: '1.0.13',
+    version: '1.0.14',
     name: 'AllPornComic',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -118,12 +127,12 @@ export class AllPornComic implements
     }
 
     getMangaShareUrl(mangaId: string): string {
-        return `${APC_DOMAIN}/porncomic/${mangaId}/`
+        return `${APC_DOMAIN}/porncomic/${resolveMangaSlug(mangaId)}/`
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
         const request = App.createRequest({
-            url: `${APC_DOMAIN}/porncomic/${mangaId}/`,
+            url: `${APC_DOMAIN}/porncomic/${resolveMangaSlug(mangaId)}/`,
             method: 'GET'
         })
         const response = await this.requestManager.schedule(request, 1)
@@ -144,7 +153,7 @@ export class AllPornComic implements
         if (chapters.length === 0) {
             try {
                 const ajaxRequest = App.createRequest({
-                    url: `${APC_DOMAIN}/porncomic/${mangaId}/ajax/chapters/`,
+                    url: `${APC_DOMAIN}/porncomic/${resolveMangaSlug(mangaId)}/ajax/chapters/`,
                     method: 'POST'
                 })
                 const ajaxRes = await this.requestManager.schedule(ajaxRequest, 1)
@@ -159,7 +168,7 @@ export class AllPornComic implements
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
         const cleanChapterSlug = chapterId.includes('/') ? chapterId.split('/').pop()! : chapterId
-        const url = `${APC_DOMAIN}/porncomic/${mangaId}/${cleanChapterSlug}/?style=list`
+        const url = `${APC_DOMAIN}/porncomic/${resolveMangaSlug(mangaId)}/${cleanChapterSlug}/?style=list`
         const request = App.createRequest({
             url,
             method: 'GET'
