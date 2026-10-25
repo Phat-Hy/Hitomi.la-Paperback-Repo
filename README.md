@@ -4,23 +4,9 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
 [![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
-[![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.4-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
-[![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.0.3-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.14-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.1.5-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![Paperback](https://img.shields.io/badge/paperback-v0.8-orange.svg)](https://paperback.moe)
-
-### 3. 👑 ToonGod (`toongod.org`)
-Full-featured extension for ToonGod adult manhwa, webtoons, and manga:
-- **Homepage Sections**:
-  - 🔄 **Latest Updates**
-  - 🔥 **Most Popular**
-  - ⭐ **Top Rated**
-  - 🆕 **New Releases**
-- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to solve Cloudflare Turnstile directly within Paperback.
-- **Search & Filter**:
-  - Search by keywords or filter by 35+ genres (Romance, Drama, Fantasy, Smut, Mature, Harem, etc.).
-  - Continuous multi-page infinite scroll pagination.
-  - Smart prefix search (`genre:romance`, `tag:smut`).
-- **High-Res Reader**: Vertical webtoon reader layout with zero-dependency JSC parsing.
 
 ---
 
@@ -37,40 +23,54 @@ Full-featured extension for ToonGod adult manhwa, webtoons, and manga:
    ```text
    https://phat-hy.github.io/Hitomi.la-Paperback-Repo/0.8/
    ```
-5. Tap **Add** and install either or both extensions from the catalog:
+5. Tap **Add** and install extensions from the catalog:
    - **Hitomi** (v1.2.11)
-   - **AllPornComic** (v1.0.4)
-   - **ToonGod** (v1.0.3)
+   - **AllPornComic** (v1.0.14)
+   - **ToonGod** (v1.1.5)
 
 ---
 
 ## 📚 Available Sources
 
-### 1. 🌸 AllPornComic (`allporncomic.com`)
-Full-featured extension for AllPornComic adult webtoons and comics:
-- **Homepage Sections**:
-  - 🔄 **Latest Updates**
-  - 🔥 **Most Popular**
-  - ⭐ **Top Rated**
-  - 🆕 **New Releases**
-- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to handle Cloudflare turnstile/clearance directly in Paperback.
-- **Search & Filter**: Search by title or browse by adult genre categories.
-- **High-Res Reader**: Automatically strips thumbnail downscaling suffixes for crisp, high-resolution comic pages.
-
-### 2. ⚡ Hitomi (`hitomi.la`)
-High-performance extension for Hitomi manga and doujinshi:
+### 1. ⚡ Hitomi (`hitomi.la`)
+High-performance extension for Hitomi manga, webtoons, and doujinshi:
 - **Homepage Sections**:
   - 🌟 **Popular Today** (`popular-today.nozomi`)
   - 🔥 **Popular This Week** (`popular-week.nozomi`)
   - 🆕 **Recently Added** (`index-all.nozomi`)
 - **Smart Composite Search**:
   - Two-phase B-Tree exact & fuzzy title search.
-  - Direct gallery ID lookup (e.g. `2892173`).
-  - Typed namespace filters (`language:english`, `female:milf`, `tag:xxx`, `artist:xxx`, `type:xxx`).
-  - Negative exclusions (`-tag:cheating`, `-female:bikini`).
+  - Direct gallery ID lookup (e.g. `1234567`).
+  - Typed namespace filters (`language:english`, `artist:xxx`, `type:manga`, `tag:xxx`).
+  - Negative exclusions (`-tag:horror`, `-type:doujinshi`).
 - **Dynamic Image Engine**:
   - Dynamic `gg.m` subdomain routing algorithm (`w1`/`w2` and `a1`/`a2`).
   - Automatic `gg.js` sync and request interceptor header injection.
+
+### 2. 🌸 AllPornComic (`allporncomic.com`)
+Full-featured extension for AllPornComic webtoons and comics:
+- **Homepage Sections**:
+  - 🔄 **Latest Updates**
+  - 🔥 **Most Popular**
+  - ⭐ **Top Rated**
+  - 🆕 **New Releases**
+- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to handle Cloudflare turnstile/clearance directly in Paperback.
+- **Search & Filter**: Search by title or browse by category.
+- **High-Res Reader**: Automatically strips thumbnail downscaling suffixes for crisp, high-resolution comic pages.
+
+### 3. 👑 ToonGod (`toongod.org`)
+Full-featured extension for ToonGod webtoons, manhwa, and manga:
+- **Homepage Sections**:
+  - 🔄 **Latest Updates**
+  - 🔥 **Most Popular**
+  - ⭐ **Top Rated**
+  - 🆕 **New Releases**
+- **Cloudflare Bypass**: Native `CloudflareBypassRequestProviding` integration to solve Cloudflare Turnstile directly within Paperback.
+- **Search & Filter**:
+  - Search by keywords or filter across genres (Romance, Drama, Fantasy, Comedy, Action, etc.).
+  - Continuous multi-page infinite scroll pagination.
+  - Smart prefix search (`genre:romance`, `tag:drama`).
+- **High-Res Reader**: Vertical webtoon reader layout with zero-dependency JSC parsing.
 
 ---
 
@@ -80,14 +80,14 @@ You can search using titles, namespace filters, and exclusions interchangeably:
 
 | Search Query | Description |
 | :--- | :--- |
-| `Mother and No Other!!` | Returns all matching chapters/volumes by title |
-| `Mother and No Other!! language:english` | Returns only English releases of the title |
-| `Mother and No Other!! language:turkish` | Returns only Turkish releases of the title |
-| `Mother and No Other!! -female:bikini` | Excludes any chapters containing the `bikini` tag |
-| `female:milf language:english` | Streams English galleries tagged with `female:milf` |
-| `artist:homunculus` | Searches galleries by specific artist |
-| `series:"fate grand order" -tag:netorare` | Series search with phrase quotes and negative tag exclusion |
-| `2892173` | Direct gallery ID lookup |
+| `Summer Memories` | Returns all matching chapters/volumes by title |
+| `Summer Memories language:english` | Returns only English releases of the title |
+| `Summer Memories language:japanese` | Returns only Japanese releases of the title |
+| `Summer Memories -tag:drama` | Excludes any chapters containing the `drama` tag |
+| `artist:shinkai language:english` | Streams English galleries by a specific artist |
+| `type:manga language:english` | Filters by type (e.g. `manga`, `webtoon`, `doujinshi`) |
+| `series:"original work" -tag:fantasy` | Series search with phrase quotes and negative tag exclusion |
+| `1234567` | Direct gallery ID lookup |
 
 ---
 
