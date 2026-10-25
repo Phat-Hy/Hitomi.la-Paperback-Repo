@@ -214,7 +214,8 @@ export function parseChapters(html: string, mangaId: string): Chapter[] {
             mangaId: mangaId,
             name: item.name || `Chapter ${chapNum}`,
             chapNum,
-            time: item.validTime
+            time: item.validTime,
+            sortingIndex: total - i
         }))
     }
 
