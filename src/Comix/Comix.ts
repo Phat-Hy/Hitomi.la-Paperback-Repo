@@ -35,7 +35,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: '1.0.3',
+    version: "1.0.4",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -87,21 +87,22 @@ export class Comix implements
     })
 
     private async fetchJson<T = any>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
-        const qs = serializeParams(params)
-        const pathForSigning = endpoint + (qs ? `?${qs}` : '')
+        const rawQs = serializeParams(params, false)
+        const encQs = serializeParams(params, true)
+        const pathForSigning = endpoint + (rawQs ? `?${rawQs}` : "")
         const token = signPath(pathForSigning)
-        const fullUrl = `${API_BASE}${pathForSigning}${qs ? '&' : '?'}_=${token}`
+        const fullUrl = `${API_BASE}${endpoint}${encQs ? `?${encQs}&` : "?"}_=${token}`
 
         const request = App.createRequest({
             url: fullUrl,
-            method: 'GET'
+            method: "GET"
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        const rawText = response.data || '{}'
+        const rawText = response.data || "{}"
         const parsed = JSON.parse(rawText)
 
-        if (response.headers?.['x-enc'] === '2' || parsed.e) {
+        if (response.headers?.["x-enc"] === "2" || parsed.e) {
             return decryptPayload<T>(parsed.e || parsed)
         }
         return parsed as T

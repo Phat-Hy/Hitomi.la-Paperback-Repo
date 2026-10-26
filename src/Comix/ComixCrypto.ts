@@ -216,25 +216,25 @@ export function decryptPayload<T = any>(encStr: string): T {
     return JSON.parse(jsonStr)
 }
 
-export function serializeParams(params: Record<string, any>): string {
+export function serializeParams(params: Record<string, any>, encode = true): string {
     const parts: string[] = []
-    function encode(prefix: string, val: any): void {
+    function enc(prefix: string, val: any): void {
         if (val === null || val === undefined) return
         if (Array.isArray(val)) {
-            val.forEach((item, idx) => encode(`${prefix}[${idx}]`, item))
-        } else if (typeof val === 'object') {
+            val.forEach((item, idx) => enc(`${prefix}[${idx}]`, item))
+        } else if (typeof val === "object") {
             const sortedKeys = Object.keys(val).sort()
             for (const k of sortedKeys) {
-                encode(prefix ? `${prefix}[${k}]` : k, val[k])
+                enc(prefix ? `${prefix}[${k}]` : k, val[k])
             }
         } else {
-            parts.push(`${prefix}=${encodeURIComponent(String(val))}`)
+            parts.push(`${prefix}=${encode ? encodeURIComponent(String(val)) : String(val)}`)
         }
     }
 
-    const sortedKeys = Object.keys(params).filter(k => k !== '_').sort()
+    const sortedKeys = Object.keys(params).filter(k => k !== "_").sort()
     for (const k of sortedKeys) {
-        encode(k, params[k])
+        enc(k, params[k])
     }
-    return parts.join('&')
+    return parts.join("&")
 }
