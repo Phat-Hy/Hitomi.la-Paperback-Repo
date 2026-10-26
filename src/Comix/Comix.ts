@@ -35,7 +35,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: '1.0.1',
+    version: "1.0.2",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',

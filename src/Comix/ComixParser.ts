@@ -3,7 +3,6 @@
 import {
     Chapter,
     ChapterDetails,
-    LanguageCode,
     PartialSourceManga,
     SourceManga,
     Tag,
@@ -12,26 +11,9 @@ import {
 
 const BLOCKED_TAGS = /\b(?:mature|adult|18\+|hentai|erotica|smut|ecchi|sex)\b/i
 
-function mapLanguage(lang?: string): LanguageCode {
-    if (!lang) return LanguageCode.ENGLISH
-    switch (lang.toLowerCase()) {
-        case 'en': return LanguageCode.ENGLISH
-        case 'ko': return LanguageCode.KOREAN
-        case 'ja': return LanguageCode.JAPANESE
-        case 'zh':
-        case 'zh-hk': return LanguageCode.CHINESE
-        case 'fr': return LanguageCode.FRENCH
-        case 'es': return LanguageCode.SPANISH
-        case 'pt':
-        case 'pt-br': return LanguageCode.PORTUGUESE
-        case 'de': return LanguageCode.GERMAN
-        case 'it': return LanguageCode.ITALIAN
-        case 'ru': return LanguageCode.RUSSIAN
-        case 'vi': return LanguageCode.VIETNAMESE
-        case 'id': return LanguageCode.INDONESIAN
-        case 'th': return LanguageCode.THAI
-        default: return LanguageCode.ENGLISH
-    }
+function mapLanguage(lang?: string): string {
+    if (!lang) return 'en'
+    return lang.toLowerCase().trim()
 }
 
 function parseRelativeTime(dateStr?: string): Date {
@@ -135,7 +117,9 @@ export function parseMangaDetails(json: any, mangaId: string): SourceManga {
 
 export function parseChapters(items: any[], mangaId: string): Chapter[] {
     const chapters: Chapter[] = []
-    for (const item of items) {
+    const total = items.length
+    for (let i = 0; i < total; i++) {
+        const item = items[i]
         const id = String(item.id)
         const chapNum = typeof item.number === 'number' ? item.number : parseFloat(item.number) || 0
         const volume = typeof item.volume === 'number' ? item.volume : 0
@@ -143,6 +127,7 @@ export function parseChapters(items: any[], mangaId: string): Chapter[] {
         const group = item.group?.name || undefined
         const time = parseRelativeTime(item.createdAtFormatted)
         const langCode = mapLanguage(item.language)
+        const sortingIndex = total - i
 
         chapters.push(App.createChapter({
             id,
@@ -151,7 +136,8 @@ export function parseChapters(items: any[], mangaId: string): Chapter[] {
             name,
             group,
             time,
-            langCode
+            langCode,
+            sortingIndex
         }))
     }
     return chapters
