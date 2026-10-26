@@ -15,16 +15,24 @@ const Hj = new Uint32Array([
 ])
 const Nj = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
+// Pure base64 decoder: zero dependency on atob or Buffer
 function base64ToUint8(b64: string): Uint8Array {
-    if (typeof Buffer !== 'undefined') {
-        return new Uint8Array(Buffer.from(b64, 'base64'))
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    const clean = b64.replace(/=+$/, '')
+    const bytes: number[] = []
+    let buffer = 0
+    let bits = 0
+    for (let i = 0; i < clean.length; i++) {
+        const val = chars.indexOf(clean.charAt(i))
+        if (val === -1) continue
+        buffer = (buffer << 6) | val
+        bits += 6
+        if (bits >= 8) {
+            bits -= 8
+            bytes.push((buffer >> bits) & 0xff)
+        }
     }
-    const bin = atob(b64)
-    const u8 = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) {
-        u8[i] = bin.charCodeAt(i)
-    }
-    return u8
+    return new Uint8Array(bytes)
 }
 
 const keyBytes = base64ToUint8(KEY_B64)
@@ -86,7 +94,9 @@ function Lj(Z: Uint8Array, n: number): Uint32Array {
 
 function stringToUtf8(str: string): Uint8Array {
     if (typeof TextEncoder !== 'undefined') {
-        return (new TextEncoder()).encode(str)
+        try {
+            return (new TextEncoder()).encode(str)
+        } catch (_) {}
     }
     const utf8: number[] = []
     for (let i = 0; i < str.length; i++) {
@@ -175,10 +185,13 @@ export function decryptPayload<T = any>(encStr: string): T {
     const decryptedBytes = E.subarray(4, D)
     let jsonStr = ''
     if (typeof TextDecoder !== 'undefined') {
-        jsonStr = new TextDecoder().decode(decryptedBytes)
-    } else if (typeof Buffer !== 'undefined') {
-        jsonStr = Buffer.from(decryptedBytes).toString('utf8')
-    } else {
+        try {
+            jsonStr = new TextDecoder().decode(decryptedBytes)
+        } catch (_) {
+            jsonStr = ''
+        }
+    }
+    if (!jsonStr) {
         // Fallback UTF-8 decoder
         for (let i = 0; i < decryptedBytes.length; i++) {
             const byte1 = decryptedBytes[i]

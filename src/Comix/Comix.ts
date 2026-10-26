@@ -1,26 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
-// Safety polyfills for JavaScriptCore in iOS
-const g: any = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this))
-if (typeof g.atob === 'undefined') {
-    g.atob = (b64: string) => {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-        let str = b64.replace(/=+$/, '')
-        let output = ''
-        for (let bc = 0, bs = 0, buffer, idx = 0; buffer = str.charAt(idx++); ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0) {
-            buffer = chars.indexOf(buffer)
-        }
-        return output
-    }
-}
-if (typeof g.Buffer === 'undefined') {
-    g.Buffer = {
-        from: (data: string) => ({
-            toString: () => data
-        })
-    }
-}
-
 import {
     BadgeColor,
     Chapter,
@@ -56,7 +35,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -181,71 +160,77 @@ export class Comix implements
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
-        const sections = [
-            App.createHomeSection({
-                id: 'comix_trending',
-                title: 'Trending',
-                type: HomeSectionType.featured,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'comix_popular',
-                title: 'Popular',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            }),
-            App.createHomeSection({
-                id: 'comix_latest',
-                title: 'Latest Updates',
-                type: HomeSectionType.singleRowNormal,
-                containsMoreItems: true
-            })
+        const sectionDefs: {
+            section: HomeSection
+            fetch: () => Promise<any[]>
+        }[] = [
+            {
+                section: App.createHomeSection({
+                    id: 'comix_trending',
+                    title: 'Trending',
+                    type: HomeSectionType.featured,
+                    containsMoreItems: true
+                }),
+                fetch: async () => {
+                    const json: any = await this.fetchJson('/manga/top', {
+                        type: 'trending',
+                        days: 1,
+                        limit: 20
+                    })
+                    return json.result || []
+                }
+            },
+            {
+                section: App.createHomeSection({
+                    id: 'comix_popular',
+                    title: 'Popular',
+                    type: HomeSectionType.singleRowNormal,
+                    containsMoreItems: true
+                }),
+                fetch: async () => {
+                    const json: any = await this.fetchJson('/manga/top', {
+                        type: 'follows',
+                        days: 7,
+                        limit: 20
+                    })
+                    return json.result || []
+                }
+            },
+            {
+                section: App.createHomeSection({
+                    id: 'comix_latest',
+                    title: 'Latest Updates',
+                    type: HomeSectionType.singleRowNormal,
+                    containsMoreItems: true
+                }),
+                fetch: async () => {
+                    const json: any = await this.fetchJson('/manga', {
+                        order: { chapter_updated_at: 'desc' },
+                        limit: 20,
+                        page: 1
+                    })
+                    return json.result?.items || []
+                }
+            }
         ]
 
-        for (const section of sections) {
-            sectionCallback(section)
+        // Emit initial empty sections so the UI renders placeholders
+        for (const item of sectionDefs) {
+            item.section.items = []
+            sectionCallback(item.section)
         }
 
-        // 1. Trending
-        try {
-            const json: any = await this.fetchJson('/manga/top', {
-                type: 'trending',
-                days: 1,
-                limit: 20
-            })
-            const items = json.result || []
-            sections[0].items = items.map(parseMangaTile)
-            sectionCallback(sections[0])
-        } catch (e) {
-            console.error('Error fetching trending home section:', e)
-        }
-
-        // 2. Popular / Follows
-        try {
-            const json: any = await this.fetchJson('/manga/top', {
-                type: 'follows',
-                days: 7,
-                limit: 20
-            })
-            const items = json.result || []
-            sections[1].items = items.map(parseMangaTile)
-            sectionCallback(sections[1])
-        } catch (e) {
-            console.error('Error fetching popular home section:', e)
-        }
-
-        // 3. Latest Updates
-        try {
-            const json: any = await this.fetchJson('/manga', {
-                order: { chapter_updated_at: 'desc' },
-                limit: 20,
-                page: 1
-            })
-            const items = json.result?.items || []
-            sections[2].items = items.map(parseMangaTile)
-            sectionCallback(sections[2])
-        } catch (e) {
-            console.error('Error fetching latest home section:', e)
+        // Fetch and populate each section asynchronously
+        for (const item of sectionDefs) {
+            try {
+                const rawItems = await item.fetch()
+                if (rawItems && rawItems.length > 0) {
+                    item.section.items = rawItems.map(parseMangaTile)
+                    sectionCallback(item.section)
+                }
+            } catch (err) {
+                console.error(`Error populating section ${item.section.id}:`, err)
+            }
         }
     }
 
