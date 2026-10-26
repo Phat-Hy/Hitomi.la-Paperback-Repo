@@ -35,7 +35,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.2",
+    version: '1.0.3',
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -67,11 +67,17 @@ export class Comix implements
         requestTimeout: 20000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {
-                request.headers = {
-                    ...(request.headers ?? {}),
-                    Referer: `${COMIX_DOMAIN}/`,
-                    Accept: 'application/json, text/plain, */*'
+                const headers: Record<string, string> = { ...(request.headers ?? {}) }
+                if (request.url.includes('comix.to')) {
+                    headers.Referer = `${COMIX_DOMAIN}/`
+                    headers.Accept = 'application/json, text/plain, */*'
+                } else {
+                    delete headers.Referer
+                    delete headers.referer
+                    delete headers.Accept
+                    delete headers.accept
                 }
+                request.headers = headers
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
