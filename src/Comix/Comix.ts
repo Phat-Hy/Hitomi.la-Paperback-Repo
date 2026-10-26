@@ -5,6 +5,7 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
+    CloudflareBypassRequestProviding,
     ContentRating,
     HomePageSectionsProviding,
     HomeSection,
@@ -37,7 +38,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.5",
+    version: "1.0.6",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -45,7 +46,7 @@ export const ComixInfo: SourceInfo = {
     description: 'Extension that pulls manga, manhwa, manhua, and comics from comix.to',
     contentRating: ContentRating.EVERYONE,
     websiteBaseURL: COMIX_DOMAIN,
-    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS,
+    intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
     sourceTags: [
         {
             text: 'Manga',
@@ -54,6 +55,10 @@ export const ComixInfo: SourceInfo = {
         {
             text: 'Webtoon',
             type: BadgeColor.GREEN
+        },
+        {
+            text: 'Cloudflare',
+            type: BadgeColor.GREY
         }
     ]
 }
@@ -62,7 +67,8 @@ export class Comix implements
     SearchResultsProviding,
     MangaProviding,
     ChapterProviding,
-    HomePageSectionsProviding {
+    HomePageSectionsProviding,
+    CloudflareBypassRequestProviding {
 
     requestManager = App.createRequestManager({
         requestsPerSecond: 4,
@@ -83,10 +89,34 @@ export class Comix implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
+                if (
+                    response.status === 403 ||
+                    response.status === 503 ||
+                    (response.data && (
+                        response.data.includes('captcha_required') ||
+                        response.data.includes('/@waf/challenge') ||
+                        response.data.includes('cf-mitigated') ||
+                        response.data.includes('Just a moment...') ||
+                        response.data.includes('challenge-platform')
+                    ))
+                ) {
+                    throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+                }
                 return response
             }
         }
     })
+
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return App.createRequest({
+            url: `${COMIX_DOMAIN}/@waf/challenge`,
+            method: 'GET',
+            headers: {
+                Referer: `${COMIX_DOMAIN}/`,
+                Origin: COMIX_DOMAIN
+            }
+        })
+    }
 
     private async fetchJson<T = any>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
         const rawQs = serializeParams(params, false)
@@ -103,6 +133,10 @@ export class Comix implements
         const response = await this.requestManager.schedule(request, 1)
         const rawText = response.data || "{}"
         const parsed = JSON.parse(rawText)
+
+        if (parsed.error === 'captcha_required' || rawText.includes('captcha_required') || rawText.includes('/@waf/challenge')) {
+            throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+        }
 
         if (response.headers?.["x-enc"] === "2" || parsed.e) {
             return decryptPayload<T>(parsed.e || parsed)
@@ -129,6 +163,9 @@ export class Comix implements
                 limit: 100,
                 page
             })
+            if (json.error === 'captcha_required') {
+                throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+            }
             const items = json.result?.items || []
             allItems.push(...items)
 
