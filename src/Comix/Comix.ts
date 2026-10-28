@@ -38,7 +38,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.6",
+    version: "1.0.7",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -89,6 +89,9 @@ export class Comix implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
+                if (response.data && (response.data.includes('key_retired') || response.data.includes('invalid_token'))) {
+                    throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
+                }
                 if (
                     response.status === 403 ||
                     response.status === 503 ||
@@ -109,11 +112,10 @@ export class Comix implements
 
     async getCloudflareBypassRequestAsync(): Promise<Request> {
         return App.createRequest({
-            url: `${COMIX_DOMAIN}/@waf/challenge`,
+            url: `${COMIX_DOMAIN}/`,
             method: 'GET',
             headers: {
-                Referer: `${COMIX_DOMAIN}/`,
-                Origin: COMIX_DOMAIN
+                Referer: `${COMIX_DOMAIN}/`
             }
         })
     }
@@ -132,7 +134,16 @@ export class Comix implements
 
         const response = await this.requestManager.schedule(request, 1)
         const rawText = response.data || "{}"
-        const parsed = JSON.parse(rawText)
+        let parsed: any = {}
+        try {
+            parsed = JSON.parse(rawText)
+        } catch (_) {
+            parsed = {}
+        }
+
+        if (parsed.code === 'key_retired' || parsed.code === 'invalid_token') {
+            throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
+        }
 
         if (parsed.error === 'captcha_required' || rawText.includes('captcha_required') || rawText.includes('/@waf/challenge')) {
             throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
