@@ -38,7 +38,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.7",
+    version: "1.0.8",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -89,22 +89,6 @@ export class Comix implements
                 return request
             },
             interceptResponse: async (response: Response): Promise<Response> => {
-                if (response.data && (response.data.includes('key_retired') || response.data.includes('invalid_token'))) {
-                    throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
-                }
-                if (
-                    response.status === 403 ||
-                    response.status === 503 ||
-                    (response.data && (
-                        response.data.includes('captcha_required') ||
-                        response.data.includes('/@waf/challenge') ||
-                        response.data.includes('cf-mitigated') ||
-                        response.data.includes('Just a moment...') ||
-                        response.data.includes('challenge-platform')
-                    ))
-                ) {
-                    throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
-                }
                 return response
             }
         }
@@ -145,7 +129,16 @@ export class Comix implements
             throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
         }
 
-        if (parsed.error === 'captcha_required' || rawText.includes('captcha_required') || rawText.includes('/@waf/challenge')) {
+        if (
+            response.status === 403 ||
+            response.status === 503 ||
+            parsed.error === 'captcha_required' ||
+            rawText.includes('captcha_required') ||
+            rawText.includes('/@waf/challenge') ||
+            rawText.includes('cf-mitigated') ||
+            rawText.includes('Just a moment...') ||
+            rawText.includes('challenge-platform')
+        ) {
             throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
         }
 
