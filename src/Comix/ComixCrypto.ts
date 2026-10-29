@@ -1,7 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
-const KEY_B64 = 'P0AcAXq2r2K5b7Dh5Ezpvs7lutc5iTK/HE7TsG4/nzLg3vm3jltktGSNC6YoaetTFC5Fan9oZptYIVdI/fAWsClgmNI96nx+Rhs2gz1qIj580XV9lVuMOwbgi8nMwV6lizSDCLuWnTf4r4OUv1mAjSup53PJCNslZobYTMeC0zems8cyWyF8MI1nwfEW+PoE+zb/SmV2V8V7ixbCwkZvs/KS0tCfOo71ABxtNdw5KfKpqHrm9xvu0SC+3+xYA3RQqjzxH+6qe+1DMS2V6HQng1YAwGO/mcMGYXJhMNoxrNCvSryWPPDH9SbkOCRVJm5J0KATyox1aP9H5N1wWwCUOYzGU4wKGJXWVH67q0dyNJ67M5qC1OElHEFbivtSiSlk+NDIRqDzAZ2d4xrOrz9PqRoycrIvTCs+X/yRjntZzoAd+kLhMASBCnd77fO1yfLFvLXctCXe+kHSiDHVjkeUdLKSuhIS9ngCJ6yubg1GRHR120HncGX2q3PcitcIypYtILsxWe+p7iShPMvLRZ9zXstTzGvf/525TYWA3tx4EsUi38fWGNM6rtOb3mjfgVILZl9f8yeyC6/0qg/bRZMbrPicXLZRHv8wrmXfCpS//9HT1/FLaZRS39IasdvU4KwOtW19xAEyrAi8wIfRJmrbm9yRKrBD7djpFCOEBCcshF1j7ldNI/sXbQZ58sdpNcUfmHN0i4tBe7WqTxFNwppt+dP7T+TlQHgX3CqOiNewVBfGbQwiAPqowzfLQc3yTcuxXiQSQanBBm6xhhu5AUkTAJMAvbaG6+/a3UWdzEqVObtETaIxC3xpHViEw+5dXXjsCo7gFSFxNW7aqRUPOVn+2I30LvrgSrAxov0Z9JFCR/IMZ9lQG/ccOOnKxIRWJbjXw4pXz0LLq+FY9QYYsS9u9aaG74TQeQJauwbt4jZz9HO1wafTYlm+Er5mGpcSeFp6FRVVXGCJLRbSF6mc+lmja/paWgCfSZEn0G/U6FpEmgp5dNHVHTvUI1r10tb6keU+N7uidspFnwMDEZQ7uAItjqR4i52PTOngksLIW/Rf3n2wTKLmhazolFvQzC0VpQ4Al00ugWUrm8L9cdqX7G+VysSwfugaQj/HAFtaTzQ7CSsw//R6805Aq3jUyIohgL1Fovnx+fcSgAJgqdbnQVZEMocA6ZErnnRBFYsksCJqeSthpLZGxRo4yKlA/xqJAg2ZF68fuIbI9YAeTGQ0YeDjxn1X3/l/HzQQzaqKkZZqKE9yG6jR3avQshmTsieKT0i47os10wZMcxI5Rc0OcIW+BMi4Dvwf4agQ4aEemw1iNTmTdde+9nMq32s7btOSPki/OSOd2NNAJz7btxyXTqRIILKQp/fEDIP2lL9zJm6D6cYH6oLovchV9Yg2WIDTU0HL7nPu1+F6woF79puZCYnjcbw18uEt/ABg8ibBq6ngztY='
-const VERSION = 'a6r'
+export interface ComixKeyConfig {
+    version: string
+    key: string
+    updated_at?: number
+}
+
+const DEFAULT_KEY_B64 = 'P0AcAXq2r2K5b7Dh5Ezpvs7lutc5iTK/HE7TsG4/nzLg3vm3jltktGSNC6YoaetTFC5Fan9oZptYIVdI/fAWsClgmNI96nx+Rhs2gz1qIj580XV9lVuMOwbgi8nMwV6lizSDCLuWnTf4r4OUv1mAjSup53PJCNslZobYTMeC0zems8cyWyF8MI1nwfEW+PoE+zb/SmV2V8V7ixbCwkZvs/KS0tCfOo71ABxtNdw5KfKpqHrm9xvu0SC+3+xYA3RQqjzxH+6qe+1DMS2V6HQng1YAwGO/mcMGYXJhMNoxrNCvSryWPPDH9SbkOCRVJm5J0KATyox1aP9H5N1wWwCUOYzGU4wKGJXWVH67q0dyNJ67M5qC1OElHEFbivtSiSlk+NDIRqDzAZ2d4xrOrz9PqRoycrIvTCs+X/yRjntZzoAd+kLhMASBCnd77fO1yfLFvLXctCXe+kHSiDHVjkeUdLKSuhIS9ngCJ6yubg1GRHR120HncGX2q3PcitcIypYtILsxWe+p7iShPMvLRZ9zXstTzGvf/525TYWA3tx4EsUi38fWGNM6rtOb3mjfgVILZl9f8yeyC6/0qg/bRZMbrPicXLZRHv8wrmXfCpS//9HT1/FLaZRS39IasdvU4KwOtW19xAEyrAi8wIfRJmrbm9yRKrBD7djpFCOEBCcshF1j7ldNI/sXbQZ58sdpNcUfmHN0i4tBe7WqTxFNwppt+dP7T+TlQHgX3CqOiNewVBfGbQwiAPqowzfLQc3yTcuxXiQSQanBBm6xhhu5AUkTAJMAvbaG6+/a3UWdzEqVObtETaIxC3xpHViEw+5dXXjsCo7gFSFxNW7aqRUPOVn+2I30LvrgSrAxov0Z9JFCR/IMZ9lQG/ccOOnKxIRWJbjXw4pXz0LLq+FY9QYYsS9u9aaG74TQeQJauwbt4jZz9HO1wafTYlm+Er5mGpcSeFp6FRVVXGCJLRbSF6mc+lmja/paWgCfSZEn0G/U6FpEmgp5dNHVHTvUI1r10tb6keU+N7uidspFnwMDEZQ7uAItjqR4i52PTOngksLIW/Rf3n2wTKLmhazolFvQzC0VpQ4Al00ugWUrm8L9cdqX7G+VysSwfugaQj/HAFtaTzQ7CSsw//R6805Aq3jUyIohgL1Fovnx+fcSgAJgqdbnQVZEMocA6ZErnnRBFYsksCJqeSthpLZGxRo4yKlA/xqJAg2ZF68fuIbI9YAeTGQ0YeDjxn1X3/l/HzQQzaqKkZZqKE9yG6jR3avQshmTsieKT0i47os10wZMcxI5Rc0OcIW+BMi4Dvwf4agQ4aEemw1iNTmTdde+9nMq32s7btOSPki/OSOd2NNAJz7btxyXTqRIILKQp/fEDIP2lL9zJm6D6cYH6oLovchV9Yg2WIDTU0HL7nPu1+F6woF79puZCYnjcbw18uEt/ABg8ibBq6ngztY='
+const DEFAULT_VERSION = 'a6r'
 const Fj = 1024
 const Hj = new Uint32Array([
     1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
@@ -35,7 +41,23 @@ function base64ToUint8(b64: string): Uint8Array {
     return new Uint8Array(bytes)
 }
 
-const keyBytes = base64ToUint8(KEY_B64)
+let activeVersion: string = DEFAULT_VERSION
+let activeKeyBytes: Uint8Array = base64ToUint8(DEFAULT_KEY_B64)
+
+export function updateComixKey(cfg: ComixKeyConfig): void {
+    if (!cfg || !cfg.version || !cfg.key) return
+    try {
+        const decoded = base64ToUint8(cfg.key)
+        if (decoded.length >= 1088) {
+            activeVersion = cfg.version
+            activeKeyBytes = decoded
+        }
+    } catch (_) {}
+}
+
+export function getActiveVersion(): string {
+    return activeVersion
+}
 
 function Ij(Z: number, n: number): number {
     return Z >>> n | Z << 32 - n
@@ -130,7 +152,7 @@ function Wj(key: Uint8Array, path: string): string {
 }
 
 export function signPath(path: string): string {
-    return VERSION + '.' + Wj(keyBytes, path)
+    return activeVersion + '.' + Wj(activeKeyBytes, path)
 }
 
 let Pj: Int8Array | null = null
@@ -167,7 +189,7 @@ export function decryptPayload<T = any>(encStr: string): T {
     if (D < 4) throw new Error('Protected response is too short')
 
     const xOffset = (E[2] << 8 | E[3]) % Fj
-    const keySub = keyBytes.subarray(64, 1088)
+    const keySub = activeKeyBytes.subarray(64, 1088)
     const GBuf = new Uint8Array(Fj)
     GBuf.set(keySub.subarray(xOffset))
     GBuf.set(keySub.subarray(0, xOffset), Fj - xOffset)

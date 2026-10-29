@@ -23,8 +23,10 @@ import {
 } from '@paperback/types'
 import {
     decryptPayload,
+    getActiveVersion,
     serializeParams,
-    signPath
+    signPath,
+    updateComixKey
 } from './ComixCrypto'
 import {
     parseChapterDetails,
@@ -104,7 +106,45 @@ export class Comix implements
         })
     }
 
-    private async fetchJson<T = any>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
+    private lastKeySyncTime = 0
+    private readonly KEY_SYNC_INTERVAL = 3600000 // 1 hour
+
+    private async ensureKeyConfig(force = false): Promise<void> {
+        const now = Date.now()
+        if (!force && this.lastKeySyncTime > 0 && (now - this.lastKeySyncTime) < this.KEY_SYNC_INTERVAL) {
+            return
+        }
+
+        const remoteUrls = [
+            'https://raw.githubusercontent.com/Phat-Hy/Hitomi.la-Paperback-Repo/main/comix_keys.json',
+            'https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json'
+        ]
+
+        for (const url of remoteUrls) {
+            try {
+                const req = App.createRequest({
+                    url: `${url}?_t=${now}`,
+                    method: 'GET'
+                })
+                const res = await this.requestManager.schedule(req, 1)
+                if (res.status === 200 && res.data) {
+                    const cfg = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+                    if (cfg && cfg.version && cfg.key) {
+                        updateComixKey(cfg)
+                        this.lastKeySyncTime = now
+                        return
+                    }
+                }
+            } catch (_) {
+                // Try next URL fallback
+            }
+        }
+        this.lastKeySyncTime = now
+    }
+
+    private async fetchJson<T = any>(endpoint: string, params: Record<string, any> = {}, retryOnExpired = true): Promise<T> {
+        await this.ensureKeyConfig(false)
+
         const rawQs = serializeParams(params, false)
         const encQs = serializeParams(params, true)
         const pathForSigning = endpoint + (rawQs ? `?${rawQs}` : "")
@@ -126,6 +166,11 @@ export class Comix implements
         }
 
         if (parsed.code === 'key_retired' || parsed.code === 'invalid_token') {
+            if (retryOnExpired) {
+                // Auto-refresh key from remote repo and retry once seamlessly
+                await this.ensureKeyConfig(true)
+                return this.fetchJson<T>(endpoint, params, false)
+            }
             throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
         }
 

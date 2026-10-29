@@ -1,0 +1,54 @@
+name: Sync Comix Signing Key
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-key:
+    name: Check & Rotate Comix Signing Key
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4.1.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: 20.x
+
+      - name: Check and extract active key
+        id: sync
+        run: node scripts/sync-comix-key.js
+
+      - name: Commit and push updated key
+        run: |
+          if [ -n "$(git status --porcelain comix_keys.json)" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add comix_keys.json
+            git commit -m "chore(comix): auto-rotate signing key from comix.to [skip ci]"
+            git push origin main
+
+            git checkout 0.8
+            git merge main --ff-only
+            git push origin 0.8
+            git checkout main
+          else
+            echo "Signing key is unchanged and operational."
+          fi
+
+      - name: Deploy updated key to GitHub Pages
+        if: steps.sync.outputs.key_updated == 'true'
+        uses: JamesIves/github-pages-deploy-action@v4.5.0
+        with:
+          branch: gh-pages
+          folder: bundles
+          token: ${{ secrets.GITHUB_TOKEN }}

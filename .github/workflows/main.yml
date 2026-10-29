@@ -37,6 +37,7 @@ jobs:
         run: |
           npx paperback bundle
           npx paperback bundle --folder=0.8
+          cp comix_keys.json bundles/comix_keys.json || true
           touch bundles/.nojekyll
 
       - name: Deploy to GitHub Pages
