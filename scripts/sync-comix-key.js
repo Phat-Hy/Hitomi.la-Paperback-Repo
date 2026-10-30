@@ -4,7 +4,7 @@
  * 1. Checks current comix_keys.json against the live Comix API.
  * 2. If valid, exits early.
  * 3. If retired/invalid:
- *    - Downloads https://comix.to/
+ *    - Downloads https://comix.to/ (with Cloudflare-resistant fallback via Jina)
  *    - Finds main-*.js and apicore-*.js
  *    - Extracts string tables, deobfuscator, and key generator functions
  *    - Executes in an isolated Node VM to extract active VERSION and KEY_B64
@@ -21,7 +21,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const KEYS_PATH = path.join(ROOT_DIR, 'comix_keys.json');
 const BUNDLES_KEYS_PATH = path.join(ROOT_DIR, 'bundles', 'comix_keys.json');
 
-function httpGet(url, headers = {}) {
+function httpGetRaw(url, headers = {}) {
     return new Promise((resolve, reject) => {
         const u = new URL(url);
         const options = {
@@ -43,6 +43,29 @@ function httpGet(url, headers = {}) {
             res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }));
         }).on('error', reject);
     });
+}
+
+async function httpGet(url, headers = {}) {
+    try {
+        const res = await httpGetRaw(url, headers);
+        // If Cloudflare blocks datacenter IP with 403 on HTML pages, use Jina proxy fallback
+        if (res.status === 403 && !url.includes('.js')) {
+            console.log(`[Sync] Direct request to ${url} returned 403 (Cloudflare WAF). Retrying via Jina proxy...`);
+            const jinaUrl = `https://r.jina.ai/${url}`;
+            const jinaRes = await httpGetRaw(jinaUrl, { 'X-Return-Format': 'html' });
+            if (jinaRes.status === 200 && jinaRes.data) {
+                return jinaRes;
+            }
+        }
+        return res;
+    } catch (err) {
+        if (!url.includes('.js')) {
+            console.log(`[Sync] Request to ${url} failed. Retrying via Jina proxy...`);
+            const jinaUrl = `https://r.jina.ai/${url}`;
+            return httpGetRaw(jinaUrl, { 'X-Return-Format': 'html' });
+        }
+        throw err;
+    }
 }
 
 function extractBraceBlock(code, startIdx) {
@@ -142,9 +165,8 @@ async function testKey(version, keyB64) {
         const token = signPath(version, keyBytes, path);
         const url = `https://comix.to/api/v1${path}&_=${token}`;
         const res = await httpGet(url);
-        if (res.status === 200) {
-            const data = JSON.parse(res.data);
-            if (data && data.status === 'ok') {
+        if (res.status === 200 && res.data) {
+            if (res.data.includes('"status":"ok"') || res.data.includes('"result"')) {
                 return true;
             }
         }
@@ -157,12 +179,14 @@ async function extractKeyFromComix() {
     const homeRes = await httpGet('https://comix.to/');
     if (homeRes.status !== 200) throw new Error(`Failed to load comix.to home: HTTP ${homeRes.status}`);
 
-    const mainMatch = homeRes.data.match(/src="([^">]*main-[^">]+\.js)"/);
+    const mainMatch = homeRes.data.match(/src="([^">]*main-[^">]+\.js)"/) || homeRes.data.match(/main-[^.]+\.js/);
     if (!mainMatch) throw new Error('Could not find main-*.js in comix.to HTML');
 
-    const mainUrl = mainMatch[1].startsWith('http') ? mainMatch[1] : `https://comix.to${mainMatch[1]}`;
+    const mainPath = mainMatch[1] || mainMatch[0];
+    const mainUrl = mainPath.startsWith('http') ? mainPath : (mainPath.startsWith('/') ? `https://comix.to${mainPath}` : `https://comix.to/assets/build/35595e3de3c99889c1aa70/dist/${mainPath}`);
     console.log('[Sync] Main JS URL:', mainUrl);
-    const mainRes = await httpGet(mainUrl);
+
+    const mainRes = await httpGetRaw(mainUrl);
     if (mainRes.status !== 200) throw new Error(`Failed to load main.js: HTTP ${mainRes.status}`);
 
     const apicoreMatch = mainRes.data.match(/["'](\.?\/?[^"']*apicore-[^"']+\.js)["']/);
@@ -173,7 +197,7 @@ async function extractKeyFromComix() {
     const apicoreUrl = apicoreRel.startsWith('http') ? apicoreRel : (apicoreRel.startsWith('/') ? new URL(apicoreRel, 'https://comix.to').href : apicoreBase + apicoreRel);
     console.log('[Sync] Apicore JS URL:', apicoreUrl);
 
-    const apicoreRes = await httpGet(apicoreUrl);
+    const apicoreRes = await httpGetRaw(apicoreUrl);
     if (apicoreRes.status !== 200) throw new Error(`Failed to load apicore.js: HTTP ${apicoreRes.status}`);
     const apicore = apicoreRes.data;
 
@@ -200,25 +224,22 @@ async function extractKeyFromComix() {
     const dxEnd = apicore.indexOf(dxEndMarker, wjStart) + dxEndMarker.length;
     const keyGenCode = apicore.substring(wjStart, dxEnd);
 
-    let bjStart = apicore.indexOf('var Bj=Dx,Fj=1024');
-    if (bjStart === -1) bjStart = apicore.indexOf('var Bj=ib,Fj=1024');
-    if (bjStart === -1) bjStart = apicore.search(/var [a-zA-Z0-9_$]+=[a-zA-Z0-9_$]+,Fj=1024/);
-
-    const akEndIdx = apicore.indexOf('Xj(_j(),l)}', bjStart);
-    const cryptoCode = apicore.substring(bjStart, akEndIdx + 'Xj(_j(),l)}'.length);
+    // Find the object name assigned at the end of keyGenCode: e.g. const JC={};
+    const objMatch = keyGenCode.match(/const ([a-zA-Z0-9_$]+)=\{\};\1\[[a-zA-Z0-9_$]+\(\d+\)\]=/);
+    if (!objMatch) throw new Error('Could not identify key object in key generator');
+    const objName = objMatch[1];
 
     const runner = `
 ${arrayCode};
 ${deobfCode};
+var ${deobfAlias} = ${deobfFunc};
 var WO = ${deobfFunc};
+var K2 = ${deobfFunc};
 ${iifeCode}
 
 ${keyGenCode}
-${cryptoCode}
 
-global.keyObj = Bj;
-global.version = Bj[${deobfFunc}(734)] || Bj[${deobfFunc}(1275)] || Object.values(Bj).find(v => typeof v === 'string' && v.length >= 3 && v.length <= 5);
-global.keyBytes = _j();
+global.keyObj = ${objName};
 `;
 
     const ctx = {
@@ -237,14 +258,22 @@ global.keyBytes = _j();
     vm.createContext(ctx);
     vm.runInContext(runner, ctx);
 
-    const version = ctx.global.version;
-    const keyB64 = Buffer.from(ctx.global.keyBytes).toString('base64');
-
-    if (!version || !keyB64 || ctx.global.keyBytes.length !== 1088) {
-        throw new Error(`Invalid extracted key (version: ${version}, bytes: ${ctx.global.keyBytes?.length})`);
+    let version = null;
+    let keyBytes = null;
+    for (const [k, v] of Object.entries(ctx.global.keyObj || {})) {
+        if (typeof v === 'string' && v.length >= 2 && v.length <= 6) {
+            version = v;
+        } else if (typeof v === 'function') {
+            keyBytes = v();
+        }
     }
 
-    console.log(`[Sync] Successfully extracted Version: '${version}', Key length: ${ctx.global.keyBytes.length}`);
+    if (!version || !keyBytes || keyBytes.length !== 1088) {
+        throw new Error(`Invalid extracted key (version: ${version}, bytes: ${keyBytes?.length})`);
+    }
+
+    const keyB64 = Buffer.from(keyBytes).toString('base64');
+    console.log(`[Sync] Successfully extracted Version: '${version}', Key length: ${keyBytes.length}`);
     return { version, key: keyB64 };
 }
 
