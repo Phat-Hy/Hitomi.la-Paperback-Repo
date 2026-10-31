@@ -40,7 +40,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.8",
+    version: "1.0.9",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -116,8 +116,8 @@ export class Comix implements
         }
 
         const remoteUrls = [
-            'https://raw.githubusercontent.com/Phat-Hy/Hitomi.la-Paperback-Repo/main/comix_keys.json',
-            'https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json'
+            'https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json',
+            'https://raw.githubusercontent.com/Phat-Hy/Hitomi.la-Paperback-Repo/main/comix_keys.json'
         ]
 
         for (const url of remoteUrls) {
@@ -156,7 +156,14 @@ export class Comix implements
             method: "GET"
         })
 
-        const response = await this.requestManager.schedule(request, 1)
+        let response: Response
+        try {
+            response = await this.requestManager.schedule(request, 1)
+        } catch (scheduleErr: any) {
+            const msg = scheduleErr?.message || (typeof scheduleErr === 'string' ? scheduleErr : 'Network request failed')
+            throw new Error(`Comix network error: ${msg}`)
+        }
+
         const rawText = response.data || "{}"
         let parsed: any = {}
         try {
@@ -165,13 +172,19 @@ export class Comix implements
             parsed = {}
         }
 
-        if (parsed.code === 'key_retired' || parsed.code === 'invalid_token') {
+        // If key is retired or invalid, or WAF blocked with 401/403 due to outdated signature, attempt remote key refresh
+        if (
+            parsed.code === 'key_retired' ||
+            parsed.code === 'invalid_token' ||
+            ((response.status === 401 || response.status === 403) && retryOnExpired)
+        ) {
             if (retryOnExpired) {
-                // Auto-refresh key from remote repo and retry once seamlessly
                 await this.ensureKeyConfig(true)
                 return this.fetchJson<T>(endpoint, params, false)
             }
-            throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
+            if (parsed.code === 'key_retired' || parsed.code === 'invalid_token') {
+                throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
+            }
         }
 
         if (
@@ -188,7 +201,11 @@ export class Comix implements
         }
 
         if (response.headers?.["x-enc"] === "2" || parsed.e) {
-            return decryptPayload<T>(parsed.e || parsed)
+            try {
+                return decryptPayload<T>(parsed.e || parsed)
+            } catch (decErr: any) {
+                throw new Error(`Failed to decrypt Comix response: ${decErr?.message || decErr}`)
+            }
         }
         return parsed as T
     }
@@ -198,36 +215,48 @@ export class Comix implements
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
-        const json = await this.fetchJson(`/manga/${mangaId}`)
-        return parseMangaDetails(json, mangaId)
+        try {
+            const json = await this.fetchJson(`/manga/${mangaId}`)
+            return parseMangaDetails(json, mangaId)
+        } catch (err: any) {
+            throw new Error(err?.message || String(err || 'Failed to get manga details'))
+        }
     }
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
-        const allItems: any[] = []
-        let page = 1
-        let hasNext = true
+        try {
+            const allItems: any[] = []
+            let page = 1
+            let hasNext = true
 
-        while (hasNext && page <= 10) {
-            const json: any = await this.fetchJson(`/manga/${mangaId}/chapters`, {
-                limit: 100,
-                page
-            })
-            if (json.error === 'captcha_required') {
-                throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+            while (hasNext && page <= 10) {
+                const json: any = await this.fetchJson(`/manga/${mangaId}/chapters`, {
+                    limit: 100,
+                    page
+                })
+                if (json.error === 'captcha_required') {
+                    throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+                }
+                const items = json.result?.items || []
+                allItems.push(...items)
+
+                hasNext = Boolean(json.result?.meta?.hasNext)
+                page++
             }
-            const items = json.result?.items || []
-            allItems.push(...items)
 
-            hasNext = Boolean(json.result?.meta?.hasNext)
-            page++
+            return parseChapters(allItems, mangaId)
+        } catch (err: any) {
+            throw new Error(err?.message || String(err || 'Failed to get chapters'))
         }
-
-        return parseChapters(allItems, mangaId)
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const json = await this.fetchJson(`/chapters/${chapterId}`)
-        return parseChapterDetails(json, mangaId, chapterId)
+        try {
+            const json = await this.fetchJson(`/chapters/${chapterId}`)
+            return parseChapterDetails(json, mangaId, chapterId)
+        } catch (err: any) {
+            throw new Error(err?.message || String(err || 'Failed to get chapter details'))
+        }
     }
 
     async supportsTagExclusion(): Promise<boolean> {
@@ -239,83 +268,87 @@ export class Comix implements
     }
 
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
-        const page = metadata?.page ?? 1
-        const params: Record<string, any> = {
-            limit: 20,
-            page
-        }
-
-        if (query.title && query.title.trim()) {
-            params.keyword = query.title.trim()
-        }
-
-        const types: string[] = []
-        const demographics: number[] = []
-        const statuses: string[] = []
-        const formatsIn: number[] = []
-        const formatsEx: number[] = []
-        const genresIn: number[] = []
-        const genresEx: number[] = []
-        let orderKey: string | undefined
-
-        const processTag = (tagId: string, isExcluded: boolean) => {
-            if (tagId.startsWith('type_')) {
-                const val = tagId.replace('type_', '')
-                if (!isExcluded) types.push(val)
-            } else if (tagId.startsWith('demo_')) {
-                const val = parseInt(tagId.replace('demo_', ''), 10)
-                if (!isNaN(val) && !isExcluded) demographics.push(val)
-            } else if (tagId.startsWith('status_')) {
-                const val = tagId.replace('status_', '')
-                if (!isExcluded) statuses.push(val)
-            } else if (tagId.startsWith('format_')) {
-                const val = parseInt(tagId.replace('format_', ''), 10)
-                if (!isNaN(val)) {
-                    if (isExcluded) formatsEx.push(val)
-                    else formatsIn.push(val)
-                }
-            } else if (tagId.startsWith('genre_')) {
-                const val = parseInt(tagId.replace('genre_', ''), 10)
-                if (!isNaN(val)) {
-                    if (isExcluded) genresEx.push(val)
-                    else genresIn.push(val)
-                }
-            } else if (tagId.startsWith('sort_')) {
-                const val = tagId.replace('sort_', '')
-                if (!isExcluded) orderKey = val
+        try {
+            const page = metadata?.page ?? 1
+            const params: Record<string, any> = {
+                limit: 20,
+                page
             }
+
+            if (query.title && query.title.trim()) {
+                params.keyword = query.title.trim()
+            }
+
+            const types: string[] = []
+            const demographics: number[] = []
+            const statuses: string[] = []
+            const formatsIn: number[] = []
+            const formatsEx: number[] = []
+            const genresIn: number[] = []
+            const genresEx: number[] = []
+            let orderKey: string | undefined
+
+            const processTag = (tagId: string, isExcluded: boolean) => {
+                if (tagId.startsWith('type_')) {
+                    const val = tagId.replace('type_', '')
+                    if (!isExcluded) types.push(val)
+                } else if (tagId.startsWith('demo_')) {
+                    const val = parseInt(tagId.replace('demo_', ''), 10)
+                    if (!isNaN(val) && !isExcluded) demographics.push(val)
+                } else if (tagId.startsWith('status_')) {
+                    const val = tagId.replace('status_', '')
+                    if (!isExcluded) statuses.push(val)
+                } else if (tagId.startsWith('format_')) {
+                    const val = parseInt(tagId.replace('format_', ''), 10)
+                    if (!isNaN(val)) {
+                        if (isExcluded) formatsEx.push(val)
+                        else formatsIn.push(val)
+                    }
+                } else if (tagId.startsWith('genre_')) {
+                    const val = parseInt(tagId.replace('genre_', ''), 10)
+                    if (!isNaN(val)) {
+                        if (isExcluded) genresEx.push(val)
+                        else genresIn.push(val)
+                    }
+                } else if (tagId.startsWith('sort_')) {
+                    const val = tagId.replace('sort_', '')
+                    if (!isExcluded) orderKey = val
+                }
+            }
+
+            for (const tag of query.includedTags ?? []) {
+                processTag(tag.id, false)
+            }
+            for (const tag of query.excludedTags ?? []) {
+                processTag(tag.id, true)
+            }
+
+            if (types.length > 0) params.types = types
+            if (demographics.length > 0) params.demographics = demographics
+            if (statuses.length > 0) params.statuses = statuses
+            if (formatsIn.length > 0) params.formats_in = formatsIn
+            if (formatsEx.length > 0) params.formats_ex = formatsEx
+            if (genresIn.length > 0) params.genres_in = genresIn
+            if (genresEx.length > 0) params.genres_ex = genresEx
+
+            if (orderKey) {
+                params.order = { [orderKey]: 'desc' }
+            } else if (!params.keyword) {
+                params.order = { chapter_updated_at: 'desc' }
+            }
+
+            const json: any = await this.fetchJson('/manga', params)
+            const items = json.result?.items || []
+            const results = items.map(parseMangaTile)
+            const hasNext = Boolean(json.result?.meta?.hasNext)
+
+            return App.createPagedResults({
+                results,
+                metadata: hasNext ? { page: page + 1 } : undefined
+            })
+        } catch (err: any) {
+            throw new Error(err?.message || String(err || 'Failed to search manga'))
         }
-
-        for (const tag of query.includedTags ?? []) {
-            processTag(tag.id, false)
-        }
-        for (const tag of query.excludedTags ?? []) {
-            processTag(tag.id, true)
-        }
-
-        if (types.length > 0) params.types = types
-        if (demographics.length > 0) params.demographics = demographics
-        if (statuses.length > 0) params.statuses = statuses
-        if (formatsIn.length > 0) params.formats_in = formatsIn
-        if (formatsEx.length > 0) params.formats_ex = formatsEx
-        if (genresIn.length > 0) params.genres_in = genresIn
-        if (genresEx.length > 0) params.genres_ex = genresEx
-
-        if (orderKey) {
-            params.order = { [orderKey]: 'desc' }
-        } else if (!params.keyword) {
-            params.order = { chapter_updated_at: 'desc' }
-        }
-
-        const json: any = await this.fetchJson('/manga', params)
-        const items = json.result?.items || []
-        const results = items.map(parseMangaTile)
-        const hasNext = Boolean(json.result?.meta?.hasNext)
-
-        return App.createPagedResults({
-            results,
-            metadata: hasNext ? { page: page + 1 } : undefined
-        })
     }
 
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
@@ -461,59 +494,63 @@ export class Comix implements
     }
 
     async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
-        const page = metadata?.page ?? 1
-        let results: any[] = []
-        let hasNext = false
+        try {
+            const page = metadata?.page ?? 1
+            let results: any[] = []
+            let hasNext = false
 
-        if (homepageSectionId === 'comix_trending') {
-            const json: any = await this.fetchJson('/manga/top', {
-                type: 'trending',
-                days: 1,
-                limit: 20,
-                page
+            if (homepageSectionId === 'comix_trending') {
+                const json: any = await this.fetchJson('/manga/top', {
+                    type: 'trending',
+                    days: 1,
+                    limit: 20,
+                    page
+                })
+                const items = json.result || []
+                results = items.map(parseMangaTile)
+                hasNext = items.length >= 20
+            } else {
+                let params: Record<string, any> = {
+                    limit: 20,
+                    page
+                }
+
+                switch (homepageSectionId) {
+                    case 'comix_manga':
+                        params = { ...params, types: ['manga'], order: { chapter_updated_at: 'desc' } }
+                        break
+                    case 'comix_manhwa':
+                        params = { ...params, types: ['manhwa'], order: { chapter_updated_at: 'desc' } }
+                        break
+                    case 'comix_manhua':
+                        params = { ...params, types: ['manhua'], order: { chapter_updated_at: 'desc' } }
+                        break
+                    case 'comix_popular':
+                        params = { ...params, order: { follows_total: 'desc' } }
+                        break
+                    case 'comix_top_rated':
+                        params = { ...params, order: { score: 'desc' } }
+                        break
+                    case 'comix_new':
+                        params = { ...params, order: { created_at: 'desc' } }
+                        break
+                    default:
+                        params = { ...params, order: { chapter_updated_at: 'desc' } }
+                        break
+                }
+
+                const json: any = await this.fetchJson('/manga', params)
+                const items = json.result?.items || []
+                results = items.map(parseMangaTile)
+                hasNext = Boolean(json.result?.meta?.hasNext)
+            }
+
+            return App.createPagedResults({
+                results,
+                metadata: hasNext ? { page: page + 1 } : undefined
             })
-            const items = json.result || []
-            results = items.map(parseMangaTile)
-            hasNext = items.length >= 20
-        } else {
-            let params: Record<string, any> = {
-                limit: 20,
-                page
-            }
-
-            switch (homepageSectionId) {
-                case 'comix_manga':
-                    params = { ...params, types: ['manga'], order: { chapter_updated_at: 'desc' } }
-                    break
-                case 'comix_manhwa':
-                    params = { ...params, types: ['manhwa'], order: { chapter_updated_at: 'desc' } }
-                    break
-                case 'comix_manhua':
-                    params = { ...params, types: ['manhua'], order: { chapter_updated_at: 'desc' } }
-                    break
-                case 'comix_popular':
-                    params = { ...params, order: { follows_total: 'desc' } }
-                    break
-                case 'comix_top_rated':
-                    params = { ...params, order: { score: 'desc' } }
-                    break
-                case 'comix_new':
-                    params = { ...params, order: { created_at: 'desc' } }
-                    break
-                default:
-                    params = { ...params, order: { chapter_updated_at: 'desc' } }
-                    break
-            }
-
-            const json: any = await this.fetchJson('/manga', params)
-            const items = json.result?.items || []
-            results = items.map(parseMangaTile)
-            hasNext = Boolean(json.result?.meta?.hasNext)
+        } catch (err: any) {
+            throw new Error(err?.message || String(err || 'Failed to load more items'))
         }
-
-        return App.createPagedResults({
-            results,
-            metadata: hasNext ? { page: page + 1 } : undefined
-        })
     }
 }

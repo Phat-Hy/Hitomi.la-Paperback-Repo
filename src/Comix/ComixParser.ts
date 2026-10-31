@@ -38,7 +38,15 @@ function parseRelativeTime(dateStr?: string): Date {
 }
 
 export function parseMangaTile(item: any): PartialSourceManga {
-    const mangaId = item.hid || String(item.id)
+    if (!item) {
+        return App.createPartialSourceManga({
+            mangaId: 'unknown',
+            image: '',
+            title: 'Unknown',
+            subtitle: ''
+        })
+    }
+    const mangaId = item.hid || String(item.id || '')
     const title = item.title || 'Untitled'
     const image = item.poster?.medium || item.poster?.large || ''
     const subtitle = item.latestChapter ? `Ch. ${item.latestChapter}` : (item.type ? String(item.type).toUpperCase() : '')
@@ -52,7 +60,7 @@ export function parseMangaTile(item: any): PartialSourceManga {
 }
 
 export function parseMangaDetails(json: any, mangaId: string): SourceManga {
-    const data = json.result || json
+    const data = json?.result || json || {}
     const titles: string[] = [data.title || mangaId]
     if (Array.isArray(data.altTitles)) {
         for (const alt of data.altTitles) {
@@ -71,8 +79,8 @@ export function parseMangaDetails(json: any, mangaId: string): SourceManga {
         else if (s === 'cancelled') status = 'Cancelled'
     }
 
-    const author = (data.authors || []).map((a: any) => a.title).filter(Boolean).join(', ')
-    const artist = (data.artists || []).map((a: any) => a.title).filter(Boolean).join(', ')
+    const author = (data.authors || []).map((a: any) => a?.title).filter(Boolean).join(', ')
+    const artist = (data.artists || []).map((a: any) => a?.title).filter(Boolean).join(', ')
     const desc = data.synopsis || ''
 
     // Collect tags & genres, filtering out mature terms to protect unauthenticated iOS library visibility
@@ -81,7 +89,8 @@ export function parseMangaDetails(json: any, mangaId: string): SourceManga {
     const tags: Tag[] = []
 
     for (const t of rawTags) {
-        const id = t.slug || String(t.id)
+        if (!t) continue
+        const id = t.slug || String(t.id || '')
         const label = t.title || t.name || id
         if (!id || !label || seenTags.has(id.toLowerCase())) continue
         seenTags.add(id.toLowerCase())
@@ -117,10 +126,12 @@ export function parseMangaDetails(json: any, mangaId: string): SourceManga {
 
 export function parseChapters(items: any[], mangaId: string): Chapter[] {
     const chapters: Chapter[] = []
+    if (!Array.isArray(items)) return chapters
     const total = items.length
     for (let i = 0; i < total; i++) {
         const item = items[i]
-        const id = String(item.id)
+        if (!item) continue
+        const id = String(item.id || '')
         const chapNum = typeof item.number === 'number' ? item.number : parseFloat(item.number) || 0
         const volume = typeof item.volume === 'number' ? item.volume : 0
         const name = item.name || (item.group?.name ? `[${item.group.name}]` : '')
@@ -144,11 +155,13 @@ export function parseChapters(items: any[], mangaId: string): Chapter[] {
 }
 
 export function parseChapterDetails(json: any, mangaId: string, chapterId: string): ChapterDetails {
-    const data = json.result || json
+    const data = json?.result || json || {}
     const pageItems = data.pages?.items || []
-    const pages: string[] = pageItems
-        .map((p: any) => p.url)
-        .filter((url: any) => typeof url === 'string' && url.length > 0)
+    const pages: string[] = Array.isArray(pageItems)
+        ? pageItems
+            .map((p: any) => p?.url)
+            .filter((url: any) => typeof url === 'string' && url.length > 0)
+        : []
 
     return App.createChapterDetails({
         id: chapterId,
