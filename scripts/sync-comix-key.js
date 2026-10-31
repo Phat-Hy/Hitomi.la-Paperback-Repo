@@ -6,7 +6,7 @@
  * 3. If retired/invalid:
  *    - Downloads https://comix.to/ (with Cloudflare-resistant fallback via Jina)
  *    - Finds main-*.js and apicore-*.js
- *    - Extracts string tables, deobfuscator, and key generator functions
+ *    - Dynamically resolves all deobfuscator aliases inside keyGenCode
  *    - Executes in an isolated Node VM to extract active VERSION and KEY_B64
  *    - Verifies the new key against https://comix.to/api/v1/manga
  *    - If HTTP 200, updates comix_keys.json and bundles/comix_keys.json
@@ -21,6 +21,12 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const KEYS_PATH = path.join(ROOT_DIR, 'comix_keys.json');
 const BUNDLES_KEYS_PATH = path.join(ROOT_DIR, 'bundles', 'comix_keys.json');
 
+const BUILTINS = new Set([
+    'Uint8Array', 'Uint32Array', 'Int8Array', 'Int32Array', 'Uint16Array', 'Int16Array',
+    'Array', 'String', 'Math', 'Object', 'Boolean', 'Number', 'Date', 'RegExp', 'Error',
+    'Symbol', 'JSON', 'Promise', 'Proxy', 'Reflect', 'Map', 'Set', 'Function'
+]);
+
 function httpGetRaw(url, headers = {}) {
     return new Promise((resolve, reject) => {
         const u = new URL(url);
@@ -30,7 +36,7 @@ function httpGetRaw(url, headers = {}) {
             path: u.pathname + u.search,
             method: 'GET',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': 'https://comix.to/',
                 'Accept': 'application/json, text/html, */*',
                 ...headers
@@ -48,7 +54,6 @@ function httpGetRaw(url, headers = {}) {
 async function httpGet(url, headers = {}) {
     try {
         const res = await httpGetRaw(url, headers);
-        // If Cloudflare blocks datacenter IP with 403 on HTML pages, use Jina proxy fallback
         if (res.status === 403 && !url.includes('.js')) {
             console.log(`[Sync] Direct request to ${url} returned 403 (Cloudflare WAF). Retrying via Jina proxy...`);
             const jinaUrl = `https://r.jina.ai/${url}`;
@@ -66,6 +71,22 @@ async function httpGet(url, headers = {}) {
         }
         throw err;
     }
+}
+
+async function fetchAssetWithRetry(url) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const res = await httpGetRaw(url);
+            if (res.status === 200 && res.data) {
+                return res;
+            }
+            console.log(`[Sync] Download ${url} attempt ${attempt} returned status ${res.status}. Retrying in 1.5s...`);
+        } catch (err) {
+            console.log(`[Sync] Download ${url} attempt ${attempt} failed: ${err.message}. Retrying in 1.5s...`);
+        }
+        await new Promise(r => setTimeout(r, 1500));
+    }
+    throw new Error(`Failed to load asset: ${url}`);
 }
 
 function extractBraceBlock(code, startIdx) {
@@ -186,9 +207,7 @@ async function extractKeyFromComix() {
     const mainUrl = mainPath.startsWith('http') ? mainPath : (mainPath.startsWith('/') ? `https://comix.to${mainPath}` : `https://comix.to/assets/build/35595e3de3c99889c1aa70/dist/${mainPath}`);
     console.log('[Sync] Main JS URL:', mainUrl);
 
-    const mainRes = await httpGetRaw(mainUrl);
-    if (mainRes.status !== 200) throw new Error(`Failed to load main.js: HTTP ${mainRes.status}`);
-
+    const mainRes = await fetchAssetWithRetry(mainUrl);
     const apicoreMatch = mainRes.data.match(/["'](\.?\/?[^"']*apicore-[^"']+\.js)["']/);
     if (!apicoreMatch) throw new Error('Could not find apicore-*.js in main.js');
 
@@ -197,8 +216,7 @@ async function extractKeyFromComix() {
     const apicoreUrl = apicoreRel.startsWith('http') ? apicoreRel : (apicoreRel.startsWith('/') ? new URL(apicoreRel, 'https://comix.to').href : apicoreBase + apicoreRel);
     console.log('[Sync] Apicore JS URL:', apicoreUrl);
 
-    const apicoreRes = await httpGetRaw(apicoreUrl);
-    if (apicoreRes.status !== 200) throw new Error(`Failed to load apicore.js: HTTP ${apicoreRes.status}`);
+    const apicoreRes = await fetchAssetWithRetry(apicoreUrl);
     const apicore = apicoreRes.data;
 
     console.log('[Sync] Apicore downloaded (', apicore.length, 'bytes). Extracting obfuscated functions...');
@@ -224,7 +242,15 @@ async function extractKeyFromComix() {
     const dxEnd = apicore.indexOf(dxEndMarker, wjStart) + dxEndMarker.length;
     const keyGenCode = apicore.substring(wjStart, dxEnd);
 
-    // Find the object name assigned at the end of keyGenCode: e.g. const JC={};
+    // Dynamically detect all deobfuscator aliases used in keyGenCode
+    const aliases = new Set(
+        [...keyGenCode.matchAll(/\b([a-zA-Z0-9_$]+)\(\d+\)/g)]
+            .map(match => match[1])
+            .filter(name => !BUILTINS.has(name))
+    );
+    const aliasDefs = Array.from(aliases).map(a => `var ${a} = ${deobfFunc};`).join('\n');
+
+    // Find the object name assigned at the end of keyGenCode: e.g. const tU={};
     const objMatch = keyGenCode.match(/const ([a-zA-Z0-9_$]+)=\{\};\1\[[a-zA-Z0-9_$]+\(\d+\)\]=/);
     if (!objMatch) throw new Error('Could not identify key object in key generator');
     const objName = objMatch[1];
@@ -233,8 +259,7 @@ async function extractKeyFromComix() {
 ${arrayCode};
 ${deobfCode};
 var ${deobfAlias} = ${deobfFunc};
-var WO = ${deobfFunc};
-var K2 = ${deobfFunc};
+${aliasDefs}
 ${iifeCode}
 
 ${keyGenCode}
