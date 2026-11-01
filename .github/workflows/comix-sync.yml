@@ -4,6 +4,10 @@ on:
     - cron: '0 */3 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -45,10 +49,23 @@ jobs:
             echo "Signing key is unchanged and operational."
           fi
 
+      - name: Install dependencies
+        if: steps.sync.outputs.key_updated == 'true'
+        run: npm install
+
+      - name: Bundle extensions
+        if: steps.sync.outputs.key_updated == 'true'
+        run: |
+          npx paperback bundle
+          npx paperback bundle --folder=0.8
+          cp comix_keys.json bundles/comix_keys.json || true
+          touch bundles/.nojekyll
+
       - name: Deploy updated key to GitHub Pages
         if: steps.sync.outputs.key_updated == 'true'
         uses: JamesIves/github-pages-deploy-action@v4.5.0
         with:
           branch: gh-pages
           folder: bundles
+          single-commit: true
           token: ${{ secrets.GITHUB_TOKEN }}
