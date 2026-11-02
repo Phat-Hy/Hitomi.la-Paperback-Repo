@@ -40,7 +40,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.0.9",
+    version: "1.1.0",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -98,7 +98,7 @@ export class Comix implements
 
     async getCloudflareBypassRequestAsync(): Promise<Request> {
         return App.createRequest({
-            url: `${COMIX_DOMAIN}/`,
+            url: `${COMIX_DOMAIN}/@waf/challenge?return=/`,
             method: 'GET',
             headers: {
                 Referer: `${COMIX_DOMAIN}/`
