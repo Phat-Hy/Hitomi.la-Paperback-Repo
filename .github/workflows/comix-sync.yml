@@ -42,7 +42,7 @@ jobs:
             git push origin main
 
             git checkout 0.8
-            git merge main --ff-only
+            git merge main --no-edit -m "chore(comix): sync 0.8 with main [skip ci]" || (git checkout --theirs . && git commit --no-edit -m "chore(comix): sync 0.8 with main [skip ci]")
             git push origin 0.8
             git checkout main
           else
