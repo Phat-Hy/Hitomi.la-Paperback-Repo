@@ -10,6 +10,17 @@ import {
 } from '@paperback/types'
 
 const BLOCKED_TAGS = /\b(?:mature|adult|18\+|hentai|erotica|smut|ecchi|sex)\b/i
+const COMIX_DOMAIN = 'https://comix.to'
+
+export function formatImageUrl(path?: string): string {
+    if (!path || typeof path !== 'string') return ''
+    const trimmed = path.trim()
+    if (!trimmed) return ''
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+    if (trimmed.startsWith('//')) return `https:${trimmed}`
+    if (trimmed.startsWith('/')) return `${COMIX_DOMAIN}${trimmed}`
+    return `${COMIX_DOMAIN}/${trimmed}`
+}
 
 function mapLanguage(lang?: string): string {
     if (!lang) return 'en'
@@ -48,7 +59,8 @@ export function parseMangaTile(item: any): PartialSourceManga {
     }
     const mangaId = item.hid || String(item.id || '')
     const title = item.title || 'Untitled'
-    const image = item.poster?.medium || item.poster?.large || ''
+    const rawImage = item.poster?.medium || item.poster?.large || ''
+    const image = formatImageUrl(rawImage)
     const subtitle = item.latestChapter ? `Ch. ${item.latestChapter}` : (item.type ? String(item.type).toUpperCase() : '')
 
     return App.createPartialSourceManga({
@@ -70,7 +82,8 @@ export function parseMangaDetails(json: any, mangaId: string): SourceManga {
         }
     }
 
-    const image = data.poster?.large || data.poster?.medium || ''
+    const rawImage = data.poster?.large || data.poster?.medium || ''
+    const image = formatImageUrl(rawImage)
     let status = 'Ongoing'
     if (data.status) {
         const s = String(data.status).toLowerCase()
@@ -159,8 +172,8 @@ export function parseChapterDetails(json: any, mangaId: string, chapterId: strin
     const pageItems = data.pages?.items || []
     const pages: string[] = Array.isArray(pageItems)
         ? pageItems
-            .map((p: any) => p?.url)
-            .filter((url: any) => typeof url === 'string' && url.length > 0)
+            .map((p: any) => formatImageUrl(p?.url))
+            .filter((url: string) => url.length > 0)
         : []
 
     return App.createChapterDetails({
