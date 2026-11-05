@@ -1,8 +1,9 @@
 /**
- * Automated Comix.to Signing Key Sync
+ * Comix Signing Key Auto-Sync & Verification Script
  * 
- * 1. Checks current comix_keys.json against the live Comix API.
- * 2. If valid, exits early.
+ * Workflow:
+ * 1. Checks comix_keys.json in repository root.
+ * 2. Tests the current key against https://comix.to/api/v1/manga?limit=20&page=1
  * 3. If retired/invalid:
  *    - Downloads https://comix.to/ (with Cloudflare-resistant fallback via Jina)
  *    - Finds main-*.js and apicore-*.js
@@ -10,12 +11,14 @@
  *    - Executes in an isolated Node VM to extract active VERSION and KEY_B64
  *    - Verifies the new key against https://comix.to/api/v1/manga
  *    - If HTTP 200, updates comix_keys.json and bundles/comix_keys.json
+ *    - Emits output variables for GitHub Actions to commit and deploy to gh-pages.
  */
 
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const vm = require('vm');
+const { execSync } = require('child_process');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const KEYS_PATH = path.join(ROOT_DIR, 'comix_keys.json');
@@ -76,8 +79,13 @@ async function httpGet(url, headers = {}) {
 async function fetchAssetWithRetry(url) {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            const res = await httpGetRaw(url);
-            if (res.status === 200 && res.data) {
+            const res = await httpGetRaw(url, {
+                'Accept': '*/*',
+                'Sec-Fetch-Dest': 'script',
+                'Sec-Fetch-Mode': 'no-cors',
+                'Sec-Fetch-Site': 'same-origin'
+            });
+            if (res.status === 200 && res.data && res.data.length > 500) {
                 return res;
             }
             console.log(`[Sync] Download ${url} attempt ${attempt} returned status ${res.status}. Retrying in 1.5s...`);
@@ -86,6 +94,20 @@ async function fetchAssetWithRetry(url) {
         }
         await new Promise(r => setTimeout(r, 1500));
     }
+
+    // Fallback: Use curl which has full HTTP/2 + browser ALPN support on Linux/GitHub Actions runners
+    try {
+        console.log(`[Sync] Direct Node fetch failed. Attempting download via curl fallback for ${url}...`);
+        const curlCmd = `curl -s -L --compressed -H "Referer: https://comix.to/" -H "Accept: */*" -H "Sec-Fetch-Dest: script" -H "Sec-Fetch-Mode: no-cors" -H "Sec-Fetch-Site: same-origin" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" "${url}"`;
+        const output = execSync(curlCmd, { maxBuffer: 15 * 1024 * 1024, encoding: 'utf8' });
+        if (output && output.length > 500 && !output.includes('error code: 403') && !output.includes('Just a moment...')) {
+            console.log(`[Sync] Successfully downloaded asset via curl (${output.length} bytes)`);
+            return { status: 200, data: output };
+        }
+    } catch (curlErr) {
+        console.log(`[Sync] curl fallback failed: ${curlErr.message}`);
+    }
+
     throw new Error(`Failed to load asset: ${url}`);
 }
 
@@ -103,7 +125,7 @@ function extractBraceBlock(code, startIdx) {
     return null;
 }
 
-// SHA256 constants & HMAC generator replicating ComixCrypto
+// SHA-256 implementation matching Comix
 const Hj = new Uint32Array([
     1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
     3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580,
@@ -221,24 +243,36 @@ async function extractKeyFromComix() {
 
     console.log('[Sync] Apicore downloaded (', apicore.length, 'bytes). Extracting obfuscated functions...');
 
-    const m = apicore.match(/!function\(\)\{const ([a-zA-Z0-9_$]+)=([a-zA-Z0-9_$]+),([a-zA-Z0-9_$]+)=([a-zA-Z0-9_$]+)\(\);/);
-    if (!m) throw new Error('Could not match unscrambler header at start of apicore');
-    const { deobfAlias, deobfFunc, arrayAlias, arrayFunc } = { deobfAlias: m[1], deobfFunc: m[2], arrayAlias: m[3], arrayFunc: m[4] };
+    // Extract the primary string array function
+    const arrMatch = apicore.match(/function\s+([a-zA-Z0-9_$]+)\s*\(\)\s*\{\s*const\s+[a-zA-Z0-9_$]+\s*=\s*(\[[^\]]+\]);/);
+    if (!arrMatch) throw new Error('Could not find string array in apicore');
+    const arrFunc = arrMatch[1];
+    const arrStart = apicore.indexOf(`function ${arrFunc}(`);
+    const arrayCode = extractBraceBlock(apicore, arrStart);
 
-    const arrayStart = apicore.indexOf('function ' + arrayFunc + '()');
-    const arrayCode = extractBraceBlock(apicore, arrayStart);
-    if (!arrayCode) throw new Error(`Could not extract function ${arrayFunc}`);
-
-    const deobfStart = apicore.indexOf('function ' + deobfFunc + '(');
+    // Extract deobfuscator function
+    const deobfMatch = apicore.match(new RegExp(`function\\s+([a-zA-Z0-9_$]+)\\s*\\([a-zA-Z0-9_$]+,\\s*[a-zA-Z0-9_$]+\\)\\s*\\{[\\s\\S]*?${arrFunc}\\(\\)`));
+    if (!deobfMatch) throw new Error('Could not find deobfuscator function in apicore');
+    const deobfFunc = deobfMatch[1];
+    const deobfStart = apicore.indexOf(`function ${deobfFunc}(`);
     const deobfCode = extractBraceBlock(apicore, deobfStart);
-    if (!deobfCode) throw new Error(`Could not extract function ${deobfFunc}`);
 
-    const iifeStart = apicore.indexOf('!function(){const ' + deobfAlias + '=' + deobfFunc);
-    const iifeEnd = apicore.indexOf('}();', iifeStart) + 4;
-    const iifeCode = apicore.substring(iifeStart, iifeEnd);
+    // Extract deobfuscator alias in the IIFE (e.g., const S=W;)
+    const aliasMatch = apicore.match(new RegExp(`const\\s+([a-zA-Z0-9_$]+)=${deobfFunc};`));
+    const deobfAlias = aliasMatch ? aliasMatch[1] : deobfFunc;
 
-    const wjStart = apicore.indexOf('wj={};');
-    const dxEndMarker = apicore.includes('return zj};') ? 'return zj};' : 'return zj;}';
+    // Extract the IIFE that permutes the string array
+    const iifeEndMarker = '}();';
+    const iifeEnd = apicore.indexOf(iifeEndMarker) + iifeEndMarker.length;
+    const iifeCode = apicore.substring(apicore.indexOf('!function'), iifeEnd);
+
+    // Extract key generator logic
+    const wjMatch = apicore.match(/([a-zA-Z0-9_$]+)=\{\};\1\[[a-zA-Z0-9_$]+\(\d+\)\]=\[/);
+    if (!wjMatch) throw new Error('Could not find key array in apicore');
+    const wjName = wjMatch[1];
+    const wjStart = apicore.indexOf(wjMatch[0]);
+
+    const dxEndMarker = 'return zj}';
     const dxEnd = apicore.indexOf(dxEndMarker, wjStart) + dxEndMarker.length;
     const keyGenCode = apicore.substring(wjStart, dxEnd);
 
@@ -263,20 +297,16 @@ ${aliasDefs}
 ${iifeCode}
 
 ${keyGenCode}
-
 global.keyObj = ${objName};
 `;
 
     const ctx = {
         global: {},
-        console,
-        TextEncoder,
-        TextDecoder,
         Uint8Array,
         Uint32Array,
-        Int8Array,
-        Math,
+        Array,
         String,
+        Math,
         Object
     };
 
