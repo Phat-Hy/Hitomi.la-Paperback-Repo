@@ -27,7 +27,8 @@ const BUNDLES_KEYS_PATH = path.join(ROOT_DIR, 'bundles', 'comix_keys.json');
 const BUILTINS = new Set([
     'Uint8Array', 'Uint32Array', 'Int8Array', 'Int32Array', 'Uint16Array', 'Int16Array',
     'Array', 'String', 'Math', 'Object', 'Boolean', 'Number', 'Date', 'RegExp', 'Error',
-    'Symbol', 'JSON', 'Promise', 'Proxy', 'Reflect', 'Map', 'Set', 'Function'
+    'Symbol', 'JSON', 'Promise', 'Proxy', 'Reflect', 'Map', 'Set', 'Function',
+    'parseInt', 'parseFloat', 'decodeURIComponent', 'encodeURIComponent'
 ]);
 
 function httpGetRaw(url, headers = {}) {
@@ -243,23 +244,28 @@ async function extractKeyFromComix() {
 
     console.log('[Sync] Apicore downloaded (', apicore.length, 'bytes). Extracting obfuscated functions...');
 
-    // Extract the primary string array function
-    const arrMatch = apicore.match(/function\s+([a-zA-Z0-9_$]+)\s*\(\)\s*\{\s*const\s+[a-zA-Z0-9_$]+\s*=\s*(\[[^\]]+\]);/);
-    if (!arrMatch) throw new Error('Could not find string array in apicore');
-    const arrFunc = arrMatch[1];
+    // Extract IIFE and both function names (array function and deobfuscator function)
+    const iifeMatch = apicore.match(/!function\s*\(\)\s*\{const\s+([a-zA-Z0-9_$]+)=([a-zA-Z0-9_$]+(?:\(\))?),\s*([a-zA-Z0-9_$]+)=([a-zA-Z0-9_$]+(?:\(\))?);/);
+    if (!iifeMatch) throw new Error('Could not match unscrambler IIFE at start of apicore');
+
+    let arrFunc, deobfFunc, deobfAlias;
+    if (iifeMatch[2].endsWith('()')) {
+        arrFunc = iifeMatch[2].slice(0, -2);
+        deobfFunc = iifeMatch[4];
+        deobfAlias = iifeMatch[3];
+    } else {
+        arrFunc = iifeMatch[4].slice(0, -2);
+        deobfFunc = iifeMatch[2];
+        deobfAlias = iifeMatch[1];
+    }
+
     const arrStart = apicore.indexOf(`function ${arrFunc}(`);
+    if (arrStart === -1) throw new Error(`Could not find string array function ${arrFunc}`);
     const arrayCode = extractBraceBlock(apicore, arrStart);
 
-    // Extract deobfuscator function
-    const deobfMatch = apicore.match(new RegExp(`function\\s+([a-zA-Z0-9_$]+)\\s*\\([a-zA-Z0-9_$]+,\\s*[a-zA-Z0-9_$]+\\)\\s*\\{[\\s\\S]*?${arrFunc}\\(\\)`));
-    if (!deobfMatch) throw new Error('Could not find deobfuscator function in apicore');
-    const deobfFunc = deobfMatch[1];
     const deobfStart = apicore.indexOf(`function ${deobfFunc}(`);
+    if (deobfStart === -1) throw new Error(`Could not find deobfuscator function ${deobfFunc}`);
     const deobfCode = extractBraceBlock(apicore, deobfStart);
-
-    // Extract deobfuscator alias in the IIFE (e.g., const S=W;)
-    const aliasMatch = apicore.match(new RegExp(`const\\s+([a-zA-Z0-9_$]+)=${deobfFunc};`));
-    const deobfAlias = aliasMatch ? aliasMatch[1] : deobfFunc;
 
     // Extract the IIFE that permutes the string array
     const iifeEndMarker = '}();';
@@ -280,8 +286,16 @@ async function extractKeyFromComix() {
     const aliases = new Set(
         [...keyGenCode.matchAll(/\b([a-zA-Z0-9_$]+)\(\d+\)/g)]
             .map(match => match[1])
-            .filter(name => !BUILTINS.has(name))
+            .filter(name => !BUILTINS.has(name) && name !== deobfFunc)
     );
+    if (deobfAlias && deobfAlias !== deobfFunc) aliases.add(deobfAlias);
+
+    // Any alias assigned before IIFE (e.g. const lu=o;)
+    const preIifeMatch = apicore.substring(0, apicore.indexOf('!function')).matchAll(/const\s+([a-zA-Z0-9_$]+)\s*=\s*([a-zA-Z0-9_$]+)/g);
+    for (const m of preIifeMatch) {
+        if (m[2] === deobfFunc) aliases.add(m[1]);
+    }
+
     const aliasDefs = Array.from(aliases).map(a => `var ${a} = ${deobfFunc};`).join('\n');
 
     // Find the object name assigned at the end of keyGenCode: e.g. const tU={};
@@ -292,7 +306,6 @@ async function extractKeyFromComix() {
     const runner = `
 ${arrayCode};
 ${deobfCode};
-var ${deobfAlias} = ${deobfFunc};
 ${aliasDefs}
 ${iifeCode}
 
@@ -307,7 +320,11 @@ global.keyObj = ${objName};
         Array,
         String,
         Math,
-        Object
+        Object,
+        parseInt,
+        parseFloat,
+        decodeURIComponent,
+        encodeURIComponent
     };
 
     vm.createContext(ctx);
