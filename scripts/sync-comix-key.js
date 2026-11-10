@@ -273,14 +273,19 @@ async function extractKeyFromComix() {
     const iifeCode = apicore.substring(apicore.indexOf('!function'), iifeEnd);
 
     // Extract key generator logic
-    const wjMatch = apicore.match(/([a-zA-Z0-9_$]+)=\{\};\1\[[a-zA-Z0-9_$]+\(\d+\)\]=\[/);
+    const dxEndMarker = 'return zj}';
+    const dxEnd = apicore.indexOf(dxEndMarker);
+    if (dxEnd === -1) throw new Error('Could not find key generator end marker in apicore');
+
+    // Search backwards within 12000 chars before dxEnd for the key dictionary containing numeric byte arrays
+    const windowStart = Math.max(0, dxEnd - 12000);
+    const window = apicore.substring(windowStart, dxEnd);
+    const wjMatch = window.match(/([a-zA-Z0-9_$]+)=\{\};[\s\S]*?\1\[[a-zA-Z0-9_$]+\(\d+\)\]=\[\d+,\d+,\d+/);
     if (!wjMatch) throw new Error('Could not find key array in apicore');
     const wjName = wjMatch[1];
-    const wjStart = apicore.indexOf(wjMatch[0]);
+    const wjStart = windowStart + window.indexOf(`${wjName}={};`);
 
-    const dxEndMarker = 'return zj}';
-    const dxEnd = apicore.indexOf(dxEndMarker, wjStart) + dxEndMarker.length;
-    const keyGenCode = apicore.substring(wjStart, dxEnd);
+    const keyGenCode = apicore.substring(wjStart, dxEnd + dxEndMarker.length);
 
     // Dynamically detect all deobfuscator aliases used in keyGenCode
     const aliases = new Set(
@@ -309,7 +314,7 @@ ${deobfCode};
 ${aliasDefs}
 ${iifeCode}
 
-${keyGenCode}
+${keyGenCode};
 global.keyObj = ${objName};
 `;
 
