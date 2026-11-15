@@ -41,9 +41,10 @@ jobs:
             git commit -m "chore(comix): auto-rotate signing key from comix.to [skip ci]"
             git push origin main
 
-            git checkout 0.8
+            git checkout 0.8 || git checkout -b 0.8 origin/0.8
+            git pull origin 0.8 --no-edit || true
             git merge main --no-edit -m "chore(comix): sync 0.8 with main [skip ci]" || (git checkout --theirs . && git commit --no-edit -m "chore(comix): sync 0.8 with main [skip ci]")
-            git push origin 0.8
+            git push origin 0.8 || echo "Warning: failed to push to 0.8, proceeding with deployment"
             git checkout main
           else
             echo "Signing key is unchanged and operational."

@@ -369,6 +369,31 @@ async function main() {
         console.log(`[Sync] Testing current key config (version: ${currentConfig.version})...`);
         const isValid = await testKey(currentConfig.version, currentConfig.key);
         if (isValid) {
+            let pagesInSync = true;
+            try {
+                const pagesRes = await fetch('https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json?t=' + Date.now(), { signal: AbortSignal.timeout(5000) });
+                if (pagesRes.ok) {
+                    const pagesConfig = await pagesRes.json();
+                    if (pagesConfig.version !== currentConfig.version) {
+                        console.log(`[Sync] GitHub Pages is out of sync (Pages: ${pagesConfig.version}, Local: ${currentConfig.version}). Triggering deployment!`);
+                        pagesInSync = false;
+                    }
+                } else {
+                    console.log(`[Sync] GitHub Pages returned status ${pagesRes.status}. Triggering deployment!`);
+                    pagesInSync = false;
+                }
+            } catch (err) {
+                console.log(`[Sync] Could not verify GitHub Pages status (${err.message}).`);
+            }
+
+            if (!pagesInSync) {
+                if (process.env.GITHUB_OUTPUT) {
+                    fs.appendFileSync(process.env.GITHUB_OUTPUT, 'key_updated=true\n');
+                    fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentConfig.version}\n`);
+                }
+                process.exit(0);
+            }
+
             console.log('[Sync] Current key is valid and working! No update needed.');
             process.exit(0);
         }
