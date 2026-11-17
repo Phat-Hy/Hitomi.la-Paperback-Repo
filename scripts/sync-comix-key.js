@@ -55,26 +55,73 @@ function httpGetRaw(url, headers = {}) {
     });
 }
 
-async function httpGet(url, headers = {}) {
+function curlGet(url, customHeaders = {}) {
     try {
-        const res = await httpGetRaw(url, headers);
-        if (res.status === 403 && !url.includes('.js')) {
-            console.log(`[Sync] Direct request to ${url} returned 403 (Cloudflare WAF). Retrying via Jina proxy...`);
-            const jinaUrl = `https://r.jina.ai/${url}`;
-            const jinaRes = await httpGetRaw(jinaUrl, { 'X-Return-Format': 'html' });
-            if (jinaRes.status === 200 && jinaRes.data) {
-                return jinaRes;
+        const headerArgs = Object.entries({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://comix.to/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            ...customHeaders
+        }).map(([k, v]) => `-H "${k}: ${v}"`).join(' ');
+
+        const cmd = `curl -s -L --compressed -w "\\n%{http_code}" ${headerArgs} "${url}"`;
+        const raw = execSync(cmd, { maxBuffer: 15 * 1024 * 1024, encoding: 'utf8', timeout: 20000 });
+        const lastNewline = raw.lastIndexOf('\n');
+        if (lastNewline !== -1) {
+            const statusCode = parseInt(raw.substring(lastNewline + 1).trim(), 10);
+            const data = raw.substring(0, lastNewline);
+            if (!isNaN(statusCode)) {
+                return { status: statusCode, data, headers: {} };
             }
         }
-        return res;
-    } catch (err) {
-        if (!url.includes('.js')) {
-            console.log(`[Sync] Request to ${url} failed. Retrying via Jina proxy...`);
-            const jinaUrl = `https://r.jina.ai/${url}`;
-            return httpGetRaw(jinaUrl, { 'X-Return-Format': 'html' });
-        }
-        throw err;
+        return { status: 200, data: raw, headers: {} };
+    } catch (_) {
+        return null;
     }
+}
+
+async function httpGet(url, headers = {}) {
+    // 1. Try Node direct fetch
+    let res = null;
+    try {
+        res = await httpGetRaw(url, headers);
+        if (res.status === 200 && res.data && !res.data.includes('Just a moment...') && !res.data.includes('cf-mitigated')) {
+            return res;
+        }
+        if (res.status === 403 && res.data && (res.data.includes('key_retired') || res.data.includes('Invalid token'))) {
+            return res;
+        }
+    } catch (_) {}
+
+    // 2. Try curl fallback (supports HTTP/2 and modern TLS ALPN on GitHub Actions runners)
+    console.log(`[Sync] Request to ${url} via Node challenged/failed. Retrying via curl...`);
+    const curlRes = curlGet(url, headers);
+    if (curlRes && curlRes.status === 200 && curlRes.data && !curlRes.data.includes('Just a moment...') && !curlRes.data.includes('cf-mitigated')) {
+        return curlRes;
+    }
+    if (curlRes && curlRes.data && (curlRes.data.includes('key_retired') || curlRes.data.includes('Invalid token'))) {
+        return curlRes;
+    }
+
+    // 3. Try proxies for non-JS files
+    if (!url.includes('.js')) {
+        console.log(`[Sync] Direct requests challenged by Cloudflare. Retrying via Jina proxy...`);
+        const jinaUrl = `https://r.jina.ai/${url}`;
+        const jinaCurl = curlGet(jinaUrl, { 'X-Return-Format': 'html' });
+        if (jinaCurl && jinaCurl.status === 200 && jinaCurl.data && jinaCurl.data.length > 500) {
+            return jinaCurl;
+        }
+        try {
+            const jinaRes = await httpGetRaw(jinaUrl, { 'X-Return-Format': 'html' });
+            if (jinaRes.status === 200 && jinaRes.data && jinaRes.data.length > 500) {
+                return jinaRes;
+            }
+        } catch (_) {}
+    }
+
+    if (curlRes) return curlRes;
+    return res || { status: 500, data: '' };
 }
 
 async function fetchAssetWithRetry(url) {
@@ -86,7 +133,7 @@ async function fetchAssetWithRetry(url) {
                 'Sec-Fetch-Mode': 'no-cors',
                 'Sec-Fetch-Site': 'same-origin'
             });
-            if (res.status === 200 && res.data && res.data.length > 500) {
+            if (res.status === 200 && res.data && res.data.length > 500 && !res.data.includes('Just a moment...')) {
                 return res;
             }
             console.log(`[Sync] Download ${url} attempt ${attempt} returned status ${res.status}. Retrying in 1.5s...`);
@@ -99,11 +146,15 @@ async function fetchAssetWithRetry(url) {
     // Fallback: Use curl which has full HTTP/2 + browser ALPN support on Linux/GitHub Actions runners
     try {
         console.log(`[Sync] Direct Node fetch failed. Attempting download via curl fallback for ${url}...`);
-        const curlCmd = `curl -s -L --compressed -H "Referer: https://comix.to/" -H "Accept: */*" -H "Sec-Fetch-Dest: script" -H "Sec-Fetch-Mode: no-cors" -H "Sec-Fetch-Site: same-origin" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" "${url}"`;
-        const output = execSync(curlCmd, { maxBuffer: 15 * 1024 * 1024, encoding: 'utf8' });
-        if (output && output.length > 500 && !output.includes('error code: 403') && !output.includes('Just a moment...')) {
-            console.log(`[Sync] Successfully downloaded asset via curl (${output.length} bytes)`);
-            return { status: 200, data: output };
+        const curlRes = curlGet(url, {
+            'Accept': '*/*',
+            'Sec-Fetch-Dest': 'script',
+            'Sec-Fetch-Mode': 'no-cors',
+            'Sec-Fetch-Site': 'same-origin'
+        });
+        if (curlRes && curlRes.data && curlRes.data.length > 500 && !curlRes.data.includes('error code: 403') && !curlRes.data.includes('Just a moment...')) {
+            console.log(`[Sync] Successfully downloaded asset via curl (${curlRes.data.length} bytes)`);
+            return curlRes;
         }
     } catch (curlErr) {
         console.log(`[Sync] curl fallback failed: ${curlErr.message}`);
@@ -208,14 +259,20 @@ async function testKey(version, keyB64) {
         const path = '/manga?limit=20&page=1';
         const token = signPath(version, keyBytes, path);
         const url = `https://comix.to/api/v1${path}&_=${token}`;
-        const res = await httpGet(url);
+        const res = await httpGet(url, { 'Accept': 'application/json' });
         if (res.status === 200 && res.data) {
             if (res.data.includes('"status":"ok"') || res.data.includes('"result"')) {
-                return true;
+                return { valid: true };
             }
         }
+        if (res.data && (res.data.includes('key_retired') || res.data.includes('Invalid token'))) {
+            return { valid: false, reason: 'key_retired' };
+        }
+        if (res.status === 403 && (res.data.includes('<!DOCTYPE html>') || res.data.includes('Just a moment...') || res.data.includes('Cloudflare') || res.data.includes('cf-mitigated'))) {
+            return { valid: null, reason: 'waf_blocked' };
+        }
     } catch (_) {}
-    return false;
+    return { valid: false, reason: 'network_error' };
 }
 
 async function extractKeyFromComix() {
@@ -379,8 +436,8 @@ async function main() {
 
     if (currentConfig && currentConfig.version && currentConfig.key) {
         console.log(`[Sync] Testing current key config (version: ${currentConfig.version})...`);
-        const isValid = await testKey(currentConfig.version, currentConfig.key);
-        if (isValid) {
+        const testRes = await testKey(currentConfig.version, currentConfig.key);
+        if (testRes.valid) {
             let pagesInSync = true;
             try {
                 const pagesRes = await fetch('https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json?t=' + Date.now(), { signal: AbortSignal.timeout(5000) });
@@ -409,6 +466,26 @@ async function main() {
             console.log('[Sync] Current key is valid and working! No update needed.');
             process.exit(0);
         }
+
+        if (testRes.reason === 'waf_blocked') {
+            console.log('[Sync] Request was challenged by Cloudflare WAF on this runner IP (not an API key_retired error).');
+            let pagesInSync = true;
+            try {
+                const pagesRes = await fetch('https://phat-hy.github.io/Hitomi.la-Paperback-Repo/comix_keys.json?t=' + Date.now(), { signal: AbortSignal.timeout(5000) });
+                if (pagesRes.ok) {
+                    const pagesConfig = await pagesRes.json();
+                    if (pagesConfig.version !== currentConfig.version) {
+                        pagesInSync = false;
+                    }
+                }
+            } catch (_) {}
+
+            if (pagesInSync) {
+                console.log(`[Sync] Current key (${currentConfig.version}) is active on GitHub Pages. Preserving key and skipping false rotation.`);
+                process.exit(0);
+            }
+        }
+
         console.log('[Sync] Current key is retired or invalid. Proceeding to rotate...');
     } else {
         console.log('[Sync] No existing key config found. Performing initial extraction...');
@@ -416,8 +493,8 @@ async function main() {
 
     const newConfig = await extractKeyFromComix();
     console.log(`[Sync] Testing newly extracted key (version: ${newConfig.version})...`);
-    const isValid = await testKey(newConfig.version, newConfig.key);
-    if (!isValid) {
+    const newTestRes = await testKey(newConfig.version, newConfig.key);
+    if (newTestRes.valid === false && newTestRes.reason === 'key_retired') {
         throw new Error(`Extracted key for version '${newConfig.version}' failed live API verification!`);
     }
 
