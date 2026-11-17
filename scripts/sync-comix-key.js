@@ -280,13 +280,25 @@ async function extractKeyFromComix() {
     if (!endMatch) throw new Error('Could not find key generator return statement in apicore');
     const funcEndIdx = u8Idx + endMatch.index + endMatch[0].length;
 
-    // Search backwards within 12000 chars before u8Idx for the key dictionary containing numeric byte arrays
-    const windowStart = Math.max(0, u8Idx - 12000);
-    const window = apicore.substring(windowStart, u8Idx);
-    const wjMatch = window.match(/([a-zA-Z0-9_$]+)=\{\};[\s\S]*?\1\[[a-zA-Z0-9_$]+\(\d+\)\]=\[\d+,\d+,\d+/);
-    if (!wjMatch) throw new Error('Could not find key array in apicore');
-    const wjName = wjMatch[1];
-    const wjStart = windowStart + window.indexOf(`${wjName}={};`);
+    // Locate the decode function right before u8Idx and find the byte array dictionary name
+    const cjMatch = apicore.substring(u8Idx - 1000, u8Idx).match(/function\s+([a-zA-Z0-9_$]+)\s*\([a-zA-Z0-9_$,\s]+\)\s*\{[^}]*?([a-zA-Z0-9_$]+)\[[a-zA-Z0-9_$]+\]/);
+    let wjStart = -1;
+    if (cjMatch) {
+        const dictName = cjMatch[2];
+        wjStart = apicore.lastIndexOf(`${dictName}={};`, u8Idx);
+    }
+    if (wjStart === -1) {
+        // Fallback: search backwards within 6000 chars for the closest byte array dictionary
+        const windowStart = Math.max(0, u8Idx - 6000);
+        const window = apicore.substring(windowStart, u8Idx);
+        const matches = [...window.matchAll(/([a-zA-Z0-9_$]+)=\{\};[\s\S]*?\1\[[a-zA-Z0-9_$]+\(\d+\)\]=\[\d+,\d+,\d+/g)];
+        if (matches.length > 0) {
+            const lastMatch = matches[matches.length - 1];
+            const wjName = lastMatch[1];
+            wjStart = windowStart + window.lastIndexOf(`${wjName}={};`);
+        }
+    }
+    if (wjStart === -1) throw new Error('Could not find key array dictionary in apicore');
 
     const keyGenCode = apicore.substring(wjStart, funcEndIdx);
 
