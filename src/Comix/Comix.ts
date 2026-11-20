@@ -40,7 +40,7 @@ const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
 export const ComixInfo: SourceInfo = {
-    version: "1.1.7",
+    version: "1.1.8",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -77,8 +77,9 @@ export class Comix implements
         requestTimeout: 20000,
         interceptor: {
             interceptRequest: async (request: Request): Promise<Request> => {
+                if (!request) return request
                 const headers: Record<string, string> = { ...(request.headers ?? {}) }
-                if (request.url.includes('comix.to')) {
+                if (request.url && request.url.includes('comix.to')) {
                     headers.Referer = `${COMIX_DOMAIN}/`
                     headers.Accept = 'application/json, text/plain, */*'
                 } else {
@@ -160,14 +161,18 @@ export class Comix implements
         try {
             response = await this.requestManager.schedule(request, 1)
         } catch (scheduleErr: any) {
-            const msg = scheduleErr?.message || (typeof scheduleErr === 'string' ? scheduleErr : 'Network request failed')
+            const msg = (scheduleErr && scheduleErr.message) ? scheduleErr.message : (typeof scheduleErr === 'string' ? scheduleErr : 'Network request failed')
             throw new Error(`Comix network error: ${msg}`)
         }
 
-        const rawText = response.data || "{}"
+        if (!response) {
+            throw new Error('Comix network error: Empty response received')
+        }
+
+        const rawText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data || {})
         let parsed: any = {}
         try {
-            parsed = JSON.parse(rawText)
+            parsed = typeof response.data === 'string' ? JSON.parse(response.data) : (response.data || {})
         } catch (_) {
             parsed = {}
         }
@@ -204,7 +209,8 @@ export class Comix implements
             try {
                 return decryptPayload<T>(parsed.e || parsed)
             } catch (decErr: any) {
-                throw new Error(`Failed to decrypt Comix response: ${decErr?.message || decErr}`)
+                const decMsg = (decErr && decErr.message) ? decErr.message : (typeof decErr === 'string' ? decErr : 'Decryption failed')
+                throw new Error(`Failed to decrypt Comix response: ${decMsg}`)
             }
         }
         return parsed as T
