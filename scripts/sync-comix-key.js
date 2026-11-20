@@ -77,8 +77,9 @@ const BASE_HEADERS = {
 };
 
 const ARGV = new Set(process.argv.slice(2));
-const FORCE = ARGV.has('--force') || process.env.COMIX_FORCE_ROTATE === '1';
-const NO_DIRECT = ARGV.has('--no-direct') || process.env.COMIX_NO_DIRECT === '1';
+const truthy = (value) => /^(1|true|yes)$/i.test(String(value || '').trim());
+const FORCE = ARGV.has('--force') || truthy(process.env.COMIX_FORCE_ROTATE);
+const NO_DIRECT = ARGV.has('--no-direct') || truthy(process.env.COMIX_NO_DIRECT);
 const SELFTEST = ARGV.has('--selftest');
 
 const transportLog = [];

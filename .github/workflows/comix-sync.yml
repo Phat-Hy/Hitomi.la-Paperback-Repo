@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '0 */3 * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force a scrape even if the key still verifies (only writes when the key changed)'
+        type: boolean
+        default: false
 
 concurrency:
   group: pages
@@ -39,6 +44,8 @@ jobs:
 
       - name: Check and extract active key
         id: sync
+        env:
+          COMIX_FORCE_ROTATE: ${{ inputs.force }}
         run: node scripts/sync-comix-key.js
 
       - name: Upload sync diagnostics
