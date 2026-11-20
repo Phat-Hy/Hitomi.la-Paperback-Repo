@@ -816,8 +816,10 @@ function locateKeyGenerator(apicore) {
 
 /**
  * Strategy 2: bundler mangle names changed enough that the strict `const a=b,
- * c=d();` declaration no longer matches. Resolve the functions the IIFE
- * actually calls, wire every `x = y` alias in the module head, and run.
+ * c=d();` declaration no longer matches. Resolve the helper functions from the
+ * names the IIFE calls *and* from the identifiers it aliases, then hoist only
+ * the pure `x = y` aliases — a call alias (`L = R()`) must stay inside the IIFE,
+ * because hoisting it would hand the deobfuscator an unpermuted string array.
  */
 function strategyRelaxed(apicore) {
     const iifeStart = apicore.indexOf('!function');
@@ -826,31 +828,37 @@ function strategyRelaxed(apicore) {
     if (!iifeBlock) throw new Error('relaxed: unbalanced IIFE');
     const iifeCode = iifeBlock + '();';
 
-    const called = new Set();
+    const head = apicore.substring(0, iifeStart);
+    const declarationRe = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*([a-zA-Z0-9_$]+)\s*(?=[,;])/g;
+
+    const candidates = new Set();
     for (const match of iifeBlock.matchAll(/\b([a-zA-Z0-9_$]+)\s*\(/g)) {
         const name = match[1];
         if (!BUILTINS.has(name) && !['if', 'for', 'while', 'switch', 'catch', 'function', 'return'].includes(name)) {
-            called.add(name);
+            candidates.add(name);
+        }
+    }
+
+    const aliases = [];
+    for (const source of [head, iifeBlock]) {
+        for (const match of source.matchAll(declarationRe)) {
+            const [, alias, target] = match;
+            if (alias === target) continue;
+            aliases.push(`var ${alias} = ${target};`);
+            candidates.add(target);
         }
     }
 
     const defs = [];
-    const defined = new Set();
-    for (const name of called) {
+    for (const name of candidates) {
+        if (BUILTINS.has(name)) continue;
         const at = apicore.indexOf(`function ${name}(`);
         if (at === -1) continue;
         const block = extractBraceBlock(apicore, at);
         if (!block || block.length < 20) continue;
         defs.push(block);
-        defined.add(name);
     }
     if (defs.length < 2) throw new Error(`relaxed: resolved ${defs.length} of the 2 required helper functions`);
-
-    const head = apicore.substring(0, iifeStart);
-    const aliases = [];
-    for (const match of head.matchAll(/(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*([a-zA-Z0-9_$]+)\s*[,;]/g)) {
-        if (match[1] !== match[2]) aliases.push(`var ${match[1]} = ${match[2]};`);
-    }
 
     const { keyGenCode, objName } = locateKeyGenerator(apicore);
     if (!objName) throw new Error('relaxed: key object name not found');
@@ -1248,6 +1256,15 @@ async function main() {
         throw new Error(`extracted key for '${scraped.version}' was rejected by the live API`);
     }
     if (verification.valid !== true) {
+        // The relaxed strategy reconstructs scope heuristically; a well-formed
+        // but wrong key would break every user until the next rotation, so it
+        // must never be published on faith.
+        if (scraped.strategy !== 'primary') {
+            throw new Error(
+                `key extracted via the ${scraped.strategy} strategy could not be verified live ` +
+                `(${verification.reason}); refusing to publish an unverified heuristic result`
+            );
+        }
         warn(`[Sync] could not verify the new key live (${verification.reason}); publishing it unverified.`);
     }
 
