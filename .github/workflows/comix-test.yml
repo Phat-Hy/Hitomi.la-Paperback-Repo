@@ -1,0 +1,46 @@
+name: Comix Sync Tests
+on:
+  push:
+    paths:
+      - 'scripts/sync-comix-key.js'
+      - 'scripts/test-sync.mjs'
+      - 'comix_keys.json'
+      - 'workers/comix-proxy/**'
+      - '.github/workflows/comix-test.yml'
+  pull_request:
+    paths:
+      - 'scripts/sync-comix-key.js'
+      - 'scripts/test-sync.mjs'
+      - 'comix_keys.json'
+      - 'workers/comix-proxy/**'
+  workflow_dispatch:
+
+concurrency:
+  group: comix-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Signing, transports and extractor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: 20.x
+
+      # The suites have no dependencies; the live checks self-skip when no
+      # transport can reach comix.to from this runner.
+      - name: Run sync tests
+        run: node --test scripts/test-sync.mjs
+
+      - name: Run proxy worker tests
+        run: node --test workers/comix-proxy/worker.test.mjs
