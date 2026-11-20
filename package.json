@@ -7,7 +7,10 @@
   "scripts": {
     "bundle": "npx paperback bundle",
     "serve": "npx paperback serve",
-    "test": "npx paperback test"
+    "test": "npx paperback test",
+    "test:sync": "node --test scripts/test-sync.mjs",
+    "test:worker": "node --test workers/comix-proxy/worker.test.mjs",
+    "sync:key": "node scripts/sync-comix-key.js"
   },
   "author": "Phat-Hy",
   "license": "GPL-3.0-or-later",

@@ -4,7 +4,7 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
 
 [![Bundle and Publish Sources](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml/badge.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo/actions/workflows/main.yml)
 [![Hitomi Version](https://img.shields.io/badge/Hitomi-v1.2.11-blue.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
-[![Comix Version](https://img.shields.io/badge/Comix-v1.0.5-purple.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
+[![Comix Version](https://img.shields.io/badge/Comix-v1.1.8-purple.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![MangaHub Version](https://img.shields.io/badge/MangaHub-v1.0.0-red.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![AllPornComic Version](https://img.shields.io/badge/AllPornComic-v1.0.14-pink.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
 [![ToonGod Version](https://img.shields.io/badge/ToonGod-v1.1.5-yellow.svg)](https://github.com/Phat-Hy/Hitomi.la-Paperback-Repo)
@@ -27,7 +27,7 @@ Official Paperback v0.8 source repository providing extensions for [Hitomi.la](h
    ```
 5. Tap **Add** and install extensions from the catalog:
    - **Hitomi** (v1.2.11)
-   - **Comix** (v1.0.5)
+   - **Comix** (v1.1.8)
    - **MangaHub** (v1.0.0)
    - **AllPornComic** (v1.0.14)
    - **ToonGod** (v1.1.5)
@@ -146,6 +146,35 @@ npx paperback bundle
 ```
 
 This compiles TypeScript source files in `src/` to `bundles/` and updates `versioning.json`.
+
+### Comix Signing Key Maintenance
+
+Comix rotates its request-signing key and ships it inside an obfuscated bundle.
+The key is refreshed automatically every three hours by
+[comix-sync.yml](.github/workflows/comix-sync.yml); these commands are for
+working on that pipeline:
+
+```bash
+npm run sync:key          # verify the checked-in key, rotate if needed
+npm run test:sync         # signing vectors, transports, extractor (live checks self-skip offline)
+npm run test:worker       # reverse-proxy worker smoke tests
+```
+
+GitHub Action runners sit on Azure IPs that comix.to challenges, so the sync
+walks a fallback chain (direct -> proxy -> translate -> jina -> wayback). Local
+runs bypass the challenge entirely. Useful overrides:
+
+| Variable / flag | Purpose |
+| --- | --- |
+| `COMIX_PROXY_URL` | Reverse-proxy template, e.g. `https://my-worker.dev/?u={url_encoded}`. See [workers/comix-proxy](workers/comix-proxy/README.md). |
+| `COMIX_PROVIDERS` | Restrict transports, e.g. `translate,wayback` (useful for reproducing a runner). |
+| `--selftest` / `selftest` input | Probe every transport without touching the key. |
+| `--force` / `force` input | Scrape even if the key still verifies; writes only if it changed. |
+
+When a run cannot reach the API at all but the scraped key differs from the
+checked-in one, the new key is written with `"verified": false` instead of
+keeping a retired one; a red run with `api rejects the shipped key` in the
+summary means upstream changed the contract.
 
 ---
 

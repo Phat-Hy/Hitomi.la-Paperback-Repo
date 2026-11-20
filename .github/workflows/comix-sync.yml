@@ -8,6 +8,10 @@ on:
         description: 'Force a scrape even if the key still verifies (only writes when the key changed)'
         type: boolean
         default: false
+      selftest:
+        description: 'Only probe the transports (reads nothing, writes nothing)'
+        type: boolean
+        default: false
 
 concurrency:
   group: pages
@@ -42,8 +46,13 @@ jobs:
         with:
           node-version: 20.x
 
+      - name: Probe transports
+        if: inputs.selftest
+        run: node scripts/sync-comix-key.js --selftest
+
       - name: Check and extract active key
         id: sync
+        if: ${{ !inputs.selftest }}
         env:
           COMIX_FORCE_ROTATE: ${{ inputs.force }}
         run: node scripts/sync-comix-key.js

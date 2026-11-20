@@ -171,19 +171,24 @@ function httpsGet(url, headers = {}, { timeoutMs = 20000, redirects = 3 } = {}) 
     });
 }
 
-/** Transparently inflate gzip/deflate/brotli bodies (raw or declared). */
+/**
+ * Transparently inflate gzip/deflate/brotli bodies.
+ *
+ * The declared `content-encoding` is authoritative; gzip is also sniffed from
+ * its magic bytes because the Internet Archive replays archived payloads
+ * already-compressed while sometimes dropping the header.
+ */
 function decodeBody(buffer, contentEncoding) {
     if (!buffer || buffer.length === 0) return '';
     const encoding = String(contentEncoding || '').toLowerCase().trim();
 
-    const gzipped = buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
-    const brotli = encoding === 'br' || (buffer.length > 4 && buffer[0] === 0xce && buffer[1] === 0xb2);
-    const deflated = encoding === 'deflate';
+    const gzipped = encoding === 'gzip' || encoding === 'x-gzip' ||
+        (buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b);
 
     try {
         if (gzipped) return zlib.gunzipSync(buffer).toString('utf8');
-        if (brotli) return zlib.brotliDecompressSync(buffer).toString('utf8');
-        if (deflated) return zlib.inflateSync(buffer).toString('utf8');
+        if (encoding === 'br') return zlib.brotliDecompressSync(buffer).toString('utf8');
+        if (encoding === 'deflate') return zlib.inflateSync(buffer).toString('utf8');
     } catch (err) {
         warn(`[Sync] could not inflate a ${encoding || 'gzip'} body: ${err.message}`);
     }
@@ -1293,4 +1298,14 @@ if (require.main === module) {
     });
 }
 
-module.exports = { signPath, testKey, extractKeyFromApicore, fetchResource, validateResponse, buildProxyUrl, toTranslateUrl };
+module.exports = {
+    signPath,
+    testKey,
+    extractKeyFromApicore,
+    fetchResource,
+    validateResponse,
+    buildProxyUrl,
+    toTranslateUrl,
+    decodeBody,
+    unwrapArchiveUrl
+};

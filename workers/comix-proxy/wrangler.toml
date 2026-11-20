@@ -1,0 +1,10 @@
+name = "comix-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+workers_dev = true
+
+# Optional: serve it from your own domain instead of workers.dev.
+# routes = [{ pattern = "comix.example.com/*", zone_name = "example.com" }]
+
+[vars]
+# PROXY_TOKEN = "change-me"   # uncomment to require ?token=... on every request
