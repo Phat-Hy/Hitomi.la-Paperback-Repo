@@ -5,6 +5,9 @@ bundles
 tmp
 lib
 
+# sync diagnostics (uploaded as a workflow artifact, never committed)
+comix-sync-report.json
+
 # compiled sources
 reference
 

@@ -11,10 +11,19 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  # Optional reverse proxy for comix.to (Cloudflare Worker, Vercel function, ...).
+  # Templates: https://my-worker.dev/?url={url_encoded}  or  https://my-worker.dev/{url}
+  # Set as a repository variable, never hard-code it here.
+  COMIX_PROXY_URL: ${{ vars.COMIX_PROXY_URL }}
+  # Optional provider override for debugging, e.g. "translate,wayback".
+  COMIX_PROVIDERS: ${{ vars.COMIX_PROVIDERS }}
+
 jobs:
   sync-key:
     name: Check & Rotate Comix Signing Key
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout main branch
@@ -31,6 +40,15 @@ jobs:
       - name: Check and extract active key
         id: sync
         run: node scripts/sync-comix-key.js
+
+      - name: Upload sync diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4.3.3
+        with:
+          name: comix-sync-report
+          path: comix-sync-report.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Commit and push updated key
         run: |
