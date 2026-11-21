@@ -6,8 +6,9 @@ export interface ComixKeyConfig {
     updated_at?: number
 }
 
-const DEFAULT_KEY_B64 = 'u7uW4Gx2f1LftBJVmnz4tM45kRzOHVAGqoYcHKGv+5wWjdyCfSISqYXqyvSYh81L3Qp1fMMDMnc1T1iQFlAi5eR3QycA/BTTLZsS2D+gFt/DE2Gp6QHFb7eqf8H+f5KCg9h0BeaBlT/TiH1xo9AHgSzDrIdedMkF9KJnW1364li16LYP0Vtm/MdPvVUV+E8Bi22tWE+CRpA+Z6s8/2HqM2tkNLZkxFejJIARr0VahW00rTq+XbS1CgIBJ6fbmJxFykxCK7RufFAnXgAdvAXsRzUoAJtPw4Amu3kxP8uXTwzR5ln3W8cUorTAmdClG1vxInH3bhPCTSX+UWkf4+WvDkZL03qj56D9tp+KL1GYHaYFuBpmL8KaTBs0edURa2x39AH95sJDugau9EF9QIUKfFFCuqYA3UVwOCuYFjfSOc6xhwBBUDCK5CLddpO6zpVgIwTRyOY6/s7Ql/8MoLZjvjY2HDm1B+p6bGo17TLYsh21OHbY9zK76L4qeEAcQg1erRRYbY5usjLa5Q8PZKrppeWvMdj5GBeVMPTmIwEAF25OUjq5W3hW466KTN/0j/X9E/LxylYX0uzGABZskydv+MUqyUYIG4aZxeBOnTwiLT+zzxBAqP7VmE01ZllUwgX1j0paEGGevNdzViCgpEfN1OOn63ogKuCGwpt+EGLZGGTLLb+pHSDDYq8FZ9VpvGo3U1IcCr2b+YCfcOWaWk/Z6Mx+p7C8LDVQtFd2J5A/LKTjvtG19F1maDHPqnt3LM66OzOJpkDoHHCSHpNYhWF8p1sV2SPAJ50GrgbnyUXXdGFyrJ/sC+W0R5lRYw3m4MHF5wcbV53hjVwUexomHB52/jYFUqno8YWiLRVjYooM/kvcDwVVvgJUATj4iyq+A4WDcGRNZkOXyC/4OKgSLQdh3P2/4M3dgITGnALf1geegRZ/31dzSr43SBhVxjZKE7oUc/RB/qnSysT3SUB9uioWob8ssjbMjczGQ6Oi1/BRYKwh+oNmR2SW4hlNju5voZVDAEo06AawBYx04trNgFfYZMlnjqqAvRJ/thpAg3ZXT0WCl4Uhxbe2a+Grvbc5l7TCTCqBaPwpJpKGGr4On3iw3PyvDvFlh4nodXNciz5ZUajWzwGyXIAn2BeYx071H6cEqTBW1Qjm8/RKnt7J/aU9NfgbIvf8Zwm+DSBtxOIkSBtg/kxXPA8lMfUWJGr+fB5Wzqto2VGhKfiXYq48n4CzOBAVaZ9dnKZMGJ9C8y9RuuS3t6S40Wd/nItpbZavri5oDQNrxD50V+yKijd+7UybRRcTrh7bTyB9Fuk4rLVC8WegCi4BdgMgzknQOPYzQ+JNOZc5FTGTbMdAQvQTOr0S5uII+Vaoay+13IdXVF6wbwsVR3eHJ7YP4R2HC5hkce2zGiFKcJ32LkbCkaH89qFqXD0fBZg4v4YdIoENpkkUs98='
-const DEFAULT_VERSION = 'sno'
+const DEFAULT_KEY_B64 = 'qyLDYIqn0ar1nAcc98wLApdPbgvcQijmQQouyW/Uh8Wp5bnwf4lI3neVMaxd0cZrp3HoHkugiCbLNExHcp7TH75kCFmxOejv6ZFY+PAPbSs/JqTeMhTwWexB/c4mxINQv8dUKZftZzRAIAoTH9s5Zs7mNmajBA/+bkSNoxAyvLyQ4SC0WGbutLbkqcFhxwSk7h86jXWGtfsG44DA1kLPG4d4xGSMtP/FdDN1P+aQ6HsEqzmiprGqXOsTnvO6RRLDQ9HoEI4THOopY6nce92E+/bNs4jpMBP0ObiHO0jk9RyQKQG7GUJK+A/wuMCQL3d8fXJzBIdL+i6QDECPDHMGayZlh5jQGbtRwK7LYqvw8C6EKRkAKRXGDWmFOpK1FB+f7zce9D19ghgrOrep1QROGxpLjhWg/dKdOzFvaVoNFmBGI02ADrPA1RvRuvPE8iuptzR8s1F6PIeJnuDyD1/kR/LNuGqGOnp3u8152vHY4SPqP/DFo3rvMxLrMUdSp1iqUcN2rnkkK0Lk0j1qCqX6WiqdE1FQUcSlG1r3TrK4NhamGmSDzEvzDQNx9EmO59u/QinSghAqA3ahdPye4Vrcr16fj+41rzSXaKeR4UZAqujTOOFm48VJkr3GBgaZpUhQTXGk5jhkoWY3+AkIQbp8v7guko4GJ543hfrjdC/GjDmXfunw9bJ2V88heObKWhF1v8d5wucKFw7BdJ8z0rmtucLa9yPn1NSj6B670M/0teKUKXzQLzw2SJNP9rRhvQLOwbuFcPKjbbtYE6OOmyse58zrACMkOp9fZ35MWO+pXpn3408OmWXdpvH6I8FnblZ5kxrparYmJIE063I0SzIjEm4xkLP5gO692lLuLGKigpKg2EFh+bbnobHanZYep4sSjyYuGaOChcflToWlRljVVZyL4MSfJzYp9gYTGW4HpCMRDlBKSX0ona4JKXk9ps8cYrP8h300bMXhzFQK3v15XQHKq+XfKblpIMWhegcJHQTsg+0k13gtgZo/MCsrg73sZPBbipRk7SoJaulsIfk9fTv8DUSVm6+sB3LQyijAvI+FN8qAAC+eyNVJn9CG9VbG7aAHf0+6v6XsrWAK13dP4il6e++L+beQJoA6Wd6aNfcxVBLNdGy7U4lrh1qpTovvncNNobeHTorr5rbAOL2Pyzl1OQRXWe18lOTFY0Vwgnpz9EsIdzgvkdEUDKZU2XjsyQ6lA/EmV9jbr7hjcDcUuUOEa2lWUZhJQOuN8bywi+NHuJNAUz1Kc0sgpSJO0U71Dqx+V/wCd+2lolAvJ3MoavSrZtXUhyefKm2BtARqgYqeqCDr5b24sN5AplphmhKojKYTmfu5ko85i2G7+99h3pXlRYzPj19B8kupnKqnNcnCK6ZrAgXY7wOSqMQ7l3uXG0oiPUEb5cYnmGJ4WB+qRNepkYv+Cwr4Q3WJOALb6gU='
+const DEFAULT_VERSION = 'dmi'
+const DEFAULT_UPDATED_AT = 1795247014265
 const Fj = 1024
 const Hj = new Uint32Array([
     1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
@@ -43,20 +44,39 @@ function base64ToUint8(b64: string): Uint8Array {
 
 let activeVersion: string = DEFAULT_VERSION
 let activeKeyBytes: Uint8Array = base64ToUint8(DEFAULT_KEY_B64)
+let activeUpdatedAt: number = DEFAULT_UPDATED_AT
 
-export function updateComixKey(cfg: ComixKeyConfig): void {
-    if (!cfg || !cfg.version || !cfg.key) return
+/**
+ * Applies a signing key. Returns true when the config was adopted.
+ *
+ * A config older than the one already in use is rejected: when a gh-pages
+ * deploy lags behind a rotation, the remote file is *stale*, and adopting it
+ * would downgrade a newer bundled default and kill every request.
+ */
+export function updateComixKey(cfg: ComixKeyConfig): boolean {
+    if (!cfg || !cfg.version || !cfg.key) return false
+    const incoming = typeof cfg.updated_at === 'number' && cfg.updated_at > 0 ? cfg.updated_at : 0
+    // No timestamp counts as stale: the sync script always writes updated_at,
+    // so an unstamped remote file cannot be proven newer than the bundle.
+    if (activeUpdatedAt > 0 && incoming < activeUpdatedAt) return false
     try {
         const decoded = base64ToUint8(cfg.key)
         if (decoded.length >= 1088) {
             activeVersion = cfg.version
             activeKeyBytes = decoded
+            if (incoming > 0) activeUpdatedAt = incoming
+            return true
         }
     } catch (_) {}
+    return false
 }
 
 export function getActiveVersion(): string {
     return activeVersion
+}
+
+export function getActiveUpdatedAt(): number {
+    return activeUpdatedAt
 }
 
 function Ij(Z: number, n: number): number {
