@@ -39,8 +39,28 @@ import { getComixSearchTags } from './ComixTags'
 const COMIX_DOMAIN = 'https://comix.to'
 const API_BASE = `${COMIX_DOMAIN}/api/v1`
 
+/**
+ * Normalises whatever was thrown into a real Error with a message.
+ *
+ * iOS JavaScriptCore surfaces a bare rejection as "JSError undefined" and the
+ * app falls back to `PaperbackError(300)`, which tells the user nothing. Every
+ * catch block funnels through here so a message always survives.
+ */
+function toError(err: any, fallback: string): Error {
+    const message = err && typeof err.message === 'string' ? err.message.trim() : ''
+    if (message) return err instanceof Error ? err : new Error(message)
+    if (typeof err === 'string' && err.trim()) return new Error(`${fallback}: ${err.trim()}`)
+    if (err && typeof err === 'object') {
+        try {
+            const json = JSON.stringify(err)
+            if (json && json !== '{}' && json !== 'null') return new Error(`${fallback}: ${json}`)
+        } catch (_) {}
+    }
+    return new Error(fallback)
+}
+
 export const ComixInfo: SourceInfo = {
-    version: "1.1.8",
+    version: "1.1.9",
     name: 'Comix',
     icon: 'icon.png',
     author: 'Phat-Hy',
@@ -131,8 +151,13 @@ export class Comix implements
                 if (res.status === 200 && res.data) {
                     const cfg = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
                     if (cfg && cfg.version && cfg.key) {
-                        updateComixKey(cfg)
+                        // updateComixKey rejects configs older than the bundled
+                        // default, so a stale Pages deploy cannot downgrade us.
+                        const adopted = updateComixKey(cfg)
                         this.lastKeySyncTime = now
+                        if (!adopted) {
+                            console.warn(`Comix: ignoring stale remote key ${cfg.version} (active ${getActiveVersion()})`)
+                        }
                         return
                     }
                 }
@@ -160,9 +185,8 @@ export class Comix implements
         let response: Response
         try {
             response = await this.requestManager.schedule(request, 1)
-        } catch (scheduleErr: any) {
-            const msg = (scheduleErr && scheduleErr.message) ? scheduleErr.message : (typeof scheduleErr === 'string' ? scheduleErr : 'Network request failed')
-            throw new Error(`Comix network error: ${msg}`)
+        } catch (scheduleErr) {
+            throw toError(scheduleErr, 'Comix network error')
         }
 
         if (!response) {
@@ -177,7 +201,22 @@ export class Comix implements
             parsed = {}
         }
 
-        // If key is retired or invalid, or WAF blocked with 401/403 due to outdated signature, attempt remote key refresh
+        // A WAF challenge is not a key problem: detect it first so a captcha
+        // response never triggers a pointless key refresh and retry.
+        const wafChallenge =
+            parsed.error === 'captcha_required' ||
+            rawText.includes('captcha_required') ||
+            rawText.includes('/@waf/challenge') ||
+            rawText.includes('cf-mitigated') ||
+            rawText.includes('Just a moment...') ||
+            rawText.includes('challenge-platform') ||
+            response.status === 503
+
+        if (wafChallenge) {
+            throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+        }
+
+        // A retired signature is worth one forced key refresh before giving up.
         if (
             parsed.code === 'key_retired' ||
             parsed.code === 'invalid_token' ||
@@ -185,32 +224,20 @@ export class Comix implements
         ) {
             if (retryOnExpired) {
                 await this.ensureKeyConfig(true)
-                return this.fetchJson<T>(endpoint, params, false)
+                const retried = await this.fetchJson<T>(endpoint, params, false)
+                return retried
             }
             if (parsed.code === 'key_retired' || parsed.code === 'invalid_token') {
                 throw new Error('Comix API signing key has expired or is invalid. Please check for extension updates.')
             }
-        }
-
-        if (
-            response.status === 403 ||
-            response.status === 503 ||
-            parsed.error === 'captcha_required' ||
-            rawText.includes('captcha_required') ||
-            rawText.includes('/@waf/challenge') ||
-            rawText.includes('cf-mitigated') ||
-            rawText.includes('Just a moment...') ||
-            rawText.includes('challenge-platform')
-        ) {
-            throw new Error('Cloudflare / WAF verification required! Please tap the Cloud icon on Discover page to verify.')
+            throw new Error('Comix request was rejected (403). Please tap the Cloud icon on Discover page to verify.')
         }
 
         if (response.headers?.["x-enc"] === "2" || parsed.e) {
             try {
                 return decryptPayload<T>(parsed.e || parsed)
-            } catch (decErr: any) {
-                const decMsg = (decErr && decErr.message) ? decErr.message : (typeof decErr === 'string' ? decErr : 'Decryption failed')
-                throw new Error(`Failed to decrypt Comix response: ${decMsg}`)
+            } catch (decErr) {
+                throw toError(decErr, 'Failed to decrypt Comix response')
             }
         }
         return parsed as T
@@ -225,7 +252,7 @@ export class Comix implements
             const json = await this.fetchJson(`/manga/${mangaId}`)
             return parseMangaDetails(json, mangaId)
         } catch (err: any) {
-            throw new Error(err?.message || String(err || 'Failed to get manga details'))
+            throw toError(err, 'Failed to get manga details')
         }
     }
 
@@ -252,7 +279,7 @@ export class Comix implements
 
             return parseChapters(allItems, mangaId)
         } catch (err: any) {
-            throw new Error(err?.message || String(err || 'Failed to get chapters'))
+            throw toError(err, 'Failed to get chapters')
         }
     }
 
@@ -261,7 +288,7 @@ export class Comix implements
             const json = await this.fetchJson(`/chapters/${chapterId}`)
             return parseChapterDetails(json, mangaId, chapterId)
         } catch (err: any) {
-            throw new Error(err?.message || String(err || 'Failed to get chapter details'))
+            throw toError(err, 'Failed to get chapter details')
         }
     }
 
@@ -353,7 +380,7 @@ export class Comix implements
                 metadata: hasNext ? { page: page + 1 } : undefined
             })
         } catch (err: any) {
-            throw new Error(err?.message || String(err || 'Failed to search manga'))
+            throw toError(err, 'Failed to search manga')
         }
     }
 
@@ -486,6 +513,8 @@ export class Comix implements
         }
 
         // Fetch and populate each section asynchronously
+        let failures = 0
+        let firstFailure: any = null
         for (const item of sectionDefs) {
             try {
                 const rawItems = await item.fetch()
@@ -494,8 +523,16 @@ export class Comix implements
                     sectionCallback(item.section)
                 }
             } catch (err) {
+                failures++
+                if (firstFailure === null) firstFailure = err
                 console.error(`Error populating section ${item.section.id}:`, err)
             }
+        }
+
+        // Empty shelves with no explanation are the worst outcome: if nothing
+        // loaded at all, surface one readable error instead of silence.
+        if (failures === sectionDefs.length) {
+            throw toError(firstFailure, 'Comix home page could not load any section')
         }
     }
 
@@ -556,7 +593,7 @@ export class Comix implements
                 metadata: hasNext ? { page: page + 1 } : undefined
             })
         } catch (err: any) {
-            throw new Error(err?.message || String(err || 'Failed to load more items'))
+            throw toError(err, 'Failed to load more items')
         }
     }
 }
